@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+*.xcuserstate
+xcuserdata/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Secrets
+*.json
+!package.json
+!tsconfig.json
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+
+# Build artifacts
+build/
+dist/
+
+# Deprecated code (keeping for reference)
+_deprecated/
+
