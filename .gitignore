@@ -1,32 +1,79 @@
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
 
 # IDEs
 .idea/
-*.xcuserstate
+.vscode/
+.cursor/
+.claude/
+*.swp
+*.swo
+
+# Xcode
 xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .venv/
+venv/
 .env
-
-# Secrets
-*.json
-!package.json
-!tsconfig.json
+.python-version
+*.egg-info/
+pip-log.txt
 
 # Terraform
 *.tfstate
 *.tfstate.*
 .terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# Keep tfvars templates, ignore actual values
 *.tfvars
+!*.tfvars.example
+
+# Secrets & credentials
+*.pem
+*.key
+*_credentials.json
+*_tokens.json
 
 # Build artifacts
 build/
 dist/
+*.app
+*.ipa
 
 # Deprecated code (keeping for reference)
 _deprecated/
-
