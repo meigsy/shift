@@ -13,18 +13,20 @@ struct ios_appApp: App {
     
     // Shared instances
     @StateObject private var healthKitManager = HealthKitManager()
-    @State private var syncService: SyncService?
+    @StateObject private var syncServiceContainer = SyncServiceContainer()
     
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(healthKitManager)
-                .task {
-                    // Initialize sync service
-                    syncService = SyncService(healthKitManager: healthKitManager)
+                .onAppear {
+                    // Initialize syncService with healthKitManager
+                    syncServiceContainer.initialize(healthKitManager: healthKitManager)
                     
-                    // Start observing HealthKit updates after app launches
-                    await setupHealthKitObservers()
+                    // Start observing HealthKit updates after app appears
+                    Task { @MainActor in
+                        await setupHealthKitObservers()
+                    }
                 }
         }
     }
@@ -42,16 +44,19 @@ struct ios_appApp: App {
             return
         }
         
-        // Start observing updates
-        healthKitManager.startObservingHealthKitUpdates { [weak self] in
+        // Start observing updates - capture syncServiceContainer to access syncService
+        healthKitManager.startObservingHealthKitUpdates { [syncServiceContainer] in
             // Callback when new data arrives
-            guard let self = self else { return }
-            
             print("🔔 HealthKit data update detected, triggering sync")
+            
+            guard let syncService = syncServiceContainer.syncService else {
+                print("⚠️ SyncService not initialized yet")
+                return
+            }
             
             // Request background task and perform sync
             Task { @MainActor in
-                await self.performSyncWithBackgroundTask()
+                await performSyncWithBackgroundTask(syncService: syncService)
             }
         }
         
@@ -59,7 +64,7 @@ struct ios_appApp: App {
     }
     
     @MainActor
-    private func performSyncWithBackgroundTask() async {
+    private func performSyncWithBackgroundTask(syncService: SyncService) async {
         let application = UIApplication.shared
         
         // Request background task
@@ -82,14 +87,6 @@ struct ios_appApp: App {
         print("🔄 Starting background sync task")
         
         // Perform sync
-        guard let syncService = syncService else {
-            print("⚠️ SyncService not initialized")
-            if backgroundTaskIdentifier != .invalid {
-                application.endBackgroundTask(backgroundTaskIdentifier)
-            }
-            return
-        }
-        
         do {
             try await syncService.syncNewHealthData()
             print("✅ Background sync completed")
@@ -102,5 +99,16 @@ struct ios_appApp: App {
             application.endBackgroundTask(backgroundTaskIdentifier)
             backgroundTaskIdentifier = .invalid
         }
+    }
+}
+
+// Container class to hold SyncService and make it accessible in closures
+@MainActor
+class SyncServiceContainer: ObservableObject {
+    var syncService: SyncService?
+    
+    func initialize(healthKitManager: HealthKitManager) {
+        syncService = SyncService(healthKitManager: healthKitManager)
+        print("✅ SyncService initialized")
     }
 }
