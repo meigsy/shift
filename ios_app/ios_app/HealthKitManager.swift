@@ -18,6 +18,10 @@ final class HealthKitManager: ObservableObject {
     @Published var authorizationError: String?
     @Published var backgroundDeliveryEnabled = false
     
+    // Observer queries for background delivery
+    private var activeObserverQueries: [HKObserverQuery] = []
+    private var dataUpdateCallback: (() -> Void)?
+    
     // MARK: - Data Types for State Estimation
     
     /// All quantity types we want to read
@@ -117,6 +121,10 @@ final class HealthKitManager: ObservableObject {
             .heartRateVariabilitySDNN,
             .stepCount,
             .activeEnergyBurned,
+            // Body composition (Withings)
+            .bodyMass,
+            .bodyFatPercentage,
+            .leanBodyMass,
         ]
         
         for identifier in criticalTypes {
@@ -141,6 +149,67 @@ final class HealthKitManager: ObservableObject {
         }
         
         backgroundDeliveryEnabled = true
+    }
+    
+    // MARK: - Observer Queries
+    
+    /// Start observing HealthKit updates and call callback when new data arrives
+    func startObservingHealthKitUpdates(callback: @escaping () -> Void) {
+        dataUpdateCallback = callback
+        
+        let typesToObserve: [HKQuantityTypeIdentifier] = [
+            .heartRate,
+            .heartRateVariabilitySDNN,
+            .stepCount,
+            .activeEnergyBurned,
+            // Body composition (Withings via HealthKit)
+            .bodyMass,
+            .bodyFatPercentage,
+            .leanBodyMass,
+        ]
+        
+        for identifier in typesToObserve {
+            guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { continue }
+            setupObserverQuery(for: type)
+        }
+        
+        // Sleep analysis
+        if let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
+            setupObserverQuery(for: sleepType)
+        }
+    }
+    
+    /// Stop all observer queries
+    func stopObservingHealthKitUpdates() {
+        for query in activeObserverQueries {
+            healthStore.stop(query)
+        }
+        activeObserverQueries.removeAll()
+        dataUpdateCallback = nil
+    }
+    
+    /// Setup an observer query for a specific type
+    private func setupObserverQuery(for sampleType: HKSampleType) {
+        let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { [weak self] _, completionHandler, error in
+            guard error == nil else {
+                print("⚠️ Observer query error for \(sampleType.identifier): \(error?.localizedDescription ?? "unknown")")
+                completionHandler()
+                return
+            }
+            
+            print("🔔 New \(sampleType.identifier) data detected")
+            
+            // Trigger callback on main thread
+            DispatchQueue.main.async {
+                self?.dataUpdateCallback?()
+            }
+            
+            completionHandler()
+        }
+        
+        healthStore.execute(query)
+        activeObserverQueries.append(query)
+        print("👁️ Started observing \(sampleType.identifier)")
     }
     
     // MARK: - Fetch All Data for Sync
