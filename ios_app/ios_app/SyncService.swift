@@ -11,11 +11,16 @@ import Foundation
 class SyncService {
     
     private let healthKitManager: HealthKitManager
-    private let endpointURL = URL(string: "https://api.shift.example.com/watch_events")!
+    private let apiClient: ApiClient
     private let lastSyncKey = "com.shift.ios-app.lastSyncTimestamp"
     
-    init(healthKitManager: HealthKitManager) {
+    init(healthKitManager: HealthKitManager, apiClient: ApiClient) {
         self.healthKitManager = healthKitManager
+        self.apiClient = apiClient
+    }
+    
+    func updateToken(_ token: String?) {
+        apiClient.setToken(token)
     }
     
     // MARK: - Sync State Management
@@ -63,36 +68,24 @@ class SyncService {
     
     // MARK: - HTTP POST
     
-    /// POST HealthDataBatch to backend endpoint
+    /// POST HealthDataBatch to backend endpoint using authenticated ApiClient
     private func postHealthDataBatch(_ batch: HealthDataBatch) async throws {
-        var request = URLRequest(url: endpointURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        print("📤 POSTing health data batch to /watch_events")
         
-        // Encode batch to JSON
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
-        
-        let jsonData = try encoder.encode(batch)
-        request.httpBody = jsonData
-        
-        print("📤 POSTing \(jsonData.count) bytes to \(endpointURL)")
-        
-        // Perform request
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SyncError.invalidResponse
+        do {
+            // Use ApiClient for authenticated request
+            let _ = try await apiClient.post(path: "/watch_events", body: batch)
+            print("✅ POST successful")
+        } catch ApiError.unauthorized {
+            print("❌ Authentication failed - token expired or invalid")
+            throw SyncError.unauthorized
+        } catch ApiError.httpError(let statusCode, let message) {
+            print("❌ Backend returned status \(statusCode): \(message)")
+            throw SyncError.httpError(statusCode: statusCode, body: message)
+        } catch {
+            print("❌ POST failed: \(error.localizedDescription)")
+            throw SyncError.httpError(statusCode: 0, body: error.localizedDescription)
         }
-        
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("❌ Backend returned status \(httpResponse.statusCode): \(errorBody)")
-            throw SyncError.httpError(statusCode: httpResponse.statusCode, body: errorBody)
-        }
-        
-        print("✅ POST successful (status \(httpResponse.statusCode))")
     }
 }
 
@@ -100,12 +93,15 @@ class SyncService {
 
 enum SyncError: LocalizedError {
     case invalidResponse
+    case unauthorized
     case httpError(statusCode: Int, body: String)
     
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
             return "Invalid response from server"
+        case .unauthorized:
+            return "Unauthorized - please sign in again"
         case .httpError(let statusCode, let body):
             return "HTTP \(statusCode): \(body)"
         }

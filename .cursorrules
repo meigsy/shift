@@ -1,0 +1,19 @@
+# Python Environment Management
+
+Always use `uv` for Python package management and environment setup:
+- Use `uv sync` instead of `pip install -r requirements.txt`
+- Use `uv run <command>` instead of `python <command>` or `python3 <command>`
+- Use `uv add <package>` instead of `pip install <package>`
+- Never suggest using `venv`, `virtualenv`, or `pip` directly
+- When creating Python projects, always create a `pyproject.toml` for uv
+
+Python version: 3.11+
+
+# General Development Principles
+
+- KISS (Keep It Simple, Stupid)
+- YAGNI (You Aren't Gonna Need It)
+- Explicit naming over clever abstractions
+- Clear function and variable names
+- Add comments only where clarity is needed
+

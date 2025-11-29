@@ -13,20 +13,38 @@ struct ios_appApp: App {
     
     // Shared instances
     @StateObject private var healthKitManager = HealthKitManager()
+    // Set useMockAuth: true to test without Apple Developer account
+    // Set useMockAuth: false for production (requires Apple Developer account)
+    @StateObject private var authViewModel = AuthViewModel(
+        backendBaseURL: "http://localhost:8080",  // Change to your backend URL
+        useMockAuth: true  // Set to false when ready for production
+    )
     @StateObject private var syncServiceContainer = SyncServiceContainer()
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(authViewModel: authViewModel)
                 .environmentObject(healthKitManager)
                 .onAppear {
-                    // Initialize syncService with healthKitManager
-                    syncServiceContainer.initialize(healthKitManager: healthKitManager)
+                    // Initialize ApiClient with auth token
+                    let apiClient = ApiClient(
+                        baseURL: authViewModel.backendBaseURL,
+                        idToken: authViewModel.idToken
+                    )
+                    
+                    // Initialize syncService with healthKitManager and apiClient
+                    syncServiceContainer.initialize(
+                        healthKitManager: healthKitManager,
+                        apiClient: apiClient
+                    )
                     
                     // Start observing HealthKit updates after app appears
                     Task { @MainActor in
                         await setupHealthKitObservers()
                     }
+                }
+                .onChange(of: authViewModel.idToken) { _, newToken in
+                    syncServiceContainer.syncService?.updateToken(newToken)
                 }
         }
     }
@@ -107,8 +125,8 @@ struct ios_appApp: App {
 class SyncServiceContainer: ObservableObject {
     var syncService: SyncService?
     
-    func initialize(healthKitManager: HealthKitManager) {
-        syncService = SyncService(healthKitManager: healthKitManager)
+    func initialize(healthKitManager: HealthKitManager, apiClient: ApiClient) {
+        syncService = SyncService(healthKitManager: healthKitManager, apiClient: apiClient)
         print("✅ SyncService initialized")
     }
 }

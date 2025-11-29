@@ -53,11 +53,15 @@ WATCH → HealthKit → iPhone → Pub/Sub → State Estimator → State → Sel
 ```
 shift/
 ├── README.md              # This file
-├── ios/                   # iOS app
+├── ios_app/               # iOS app
 │   ├── HealthKit ingestion
 │   ├── Sign in with Apple
 │   ├── Push notification handling
 │   └── Interaction event reporting
+├── backend/               # FastAPI backend service
+│   ├── Authentication (Sign in with Apple)
+│   ├── Health data ingestion
+│   └── User management
 ├── pipelines/             # All backend processing
 │   ├── watch_events/      # iOS → Pub/Sub → BigQuery
 │   ├── withings_events/   # Withings API → BigQuery
@@ -162,10 +166,19 @@ Push is the trigger; app pulls full payload.
 ### Purpose
 
 - HealthKit ingestion (Apple Watch data)
-- Authentication (Sign in with Apple)
+- Authentication (Sign in with Apple via GCP Identity Platform)
 - Push notification receiving
 - Surface rendering (SwiftUI)
 - Interaction event reporting
+
+### Authentication Flow
+
+1. User signs in with Apple (native iOS flow)
+2. iOS sends Apple credentials to backend `/auth/apple`
+3. Backend verifies with Apple and exchanges with Identity Platform
+4. Backend returns Identity Platform ID token
+5. iOS uses ID token for authenticated API requests
+6. Health data sync includes authentication headers
 
 ### Devices
 
