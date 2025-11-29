@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 @main
 struct ios_appApp: App {
@@ -123,7 +124,7 @@ struct ios_appApp: App {
 // Container class to hold SyncService and make it accessible in closures
 @MainActor
 class SyncServiceContainer: ObservableObject {
-    var syncService: SyncService?
+    @Published var syncService: SyncService?
     
     func initialize(healthKitManager: HealthKitManager, apiClient: ApiClient) {
         syncService = SyncService(healthKitManager: healthKitManager, apiClient: apiClient)

@@ -41,6 +41,7 @@ class AuthViewModel: NSObject, ObservableObject {
     // MARK: - Sign in with Apple
     
     func signInWithApple() {
+        print("🔵 AuthViewModel: signInWithApple() called")
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
         request.requestedScopes = [.fullName, .email]
@@ -48,7 +49,30 @@ class AuthViewModel: NSObject, ObservableObject {
         let authorizationController = ASAuthorizationController(authorizationRequests: [request])
         authorizationController.delegate = self
         authorizationController.presentationContextProvider = self
+        print("🔵 AuthViewModel: Performing Sign in with Apple request...")
         authorizationController.performRequests()
+    }
+    
+    // MARK: - Test Bypass (for simulator testing)
+    
+    func signInWithMock() {
+        print("🧪 AuthViewModel: Using mock sign-in bypass for testing")
+        // Simulate Apple Sign In with mock tokens
+        let mockIdentityToken = "mock.apple.identity.token.\(UUID().uuidString)"
+        let mockAuthorizationCode = "mock.apple.auth.code.\(UUID().uuidString)"
+        
+        Task {
+            do {
+                try await authenticateWithBackend(
+                    identityToken: mockIdentityToken,
+                    authorizationCode: mockAuthorizationCode
+                )
+                print("✅ AuthViewModel: Mock authentication successful!")
+            } catch {
+                print("❌ AuthViewModel: Mock authentication failed: \(error.localizedDescription)")
+                errorMessage = "Mock authentication failed: \(error.localizedDescription)"
+            }
+        }
     }
     
     // MARK: - Sign Out
@@ -76,7 +100,10 @@ class AuthViewModel: NSObject, ObservableObject {
     private func authenticateWithBackend(identityToken: String, authorizationCode: String) async throws {
         // Use mock endpoint if enabled (for testing without Apple Developer account)
         let authPath = useMockAuth ? "/auth/apple/mock" : "/auth/apple"
-        guard let url = URL(string: "\(backendBaseURL)\(authPath)") else {
+        let fullURL = "\(backendBaseURL)\(authPath)"
+        print("🟡 AuthViewModel: Authenticating with backend: \(fullURL)")
+        guard let url = URL(string: fullURL) else {
+            print("❌ AuthViewModel: Invalid URL: \(fullURL)")
             throw AuthError.invalidURL
         }
         
@@ -91,29 +118,69 @@ class AuthViewModel: NSObject, ObservableObject {
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
+        print("🟡 AuthViewModel: Sending request to backend...")
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ AuthViewModel: Invalid response type")
             throw AuthError.invalidResponse
         }
         
+        print("🟡 AuthViewModel: Backend response status: \(httpResponse.statusCode)")
+        print("🟡 AuthViewModel: Response data length: \(data.count) bytes")
+        
         guard (200...299).contains(httpResponse.statusCode) else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("❌ AuthViewModel: Backend error: \(httpResponse.statusCode) - \(errorBody)")
             throw AuthError.httpError(statusCode: httpResponse.statusCode, message: errorBody)
+        }
+        
+        // Debug: Print raw response
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("🟡 AuthViewModel: Raw response: \(responseString)")
         }
         
         // Parse response
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         
-        let authResponse = try decoder.decode(AuthResponse.self, from: data)
+        // Custom date formatter to handle backend dates without timezone (assumes UTC)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0) // Assume UTC
+        decoder.dateDecodingStrategy = .formatted(dateFormatter)
         
-        // Save token
-        saveToken(authResponse.idToken)
-        
-        // Set user
-        user = authResponse.user
-        isAuthenticated = true
+        do {
+            let authResponse = try decoder.decode(AuthResponse.self, from: data)
+            print("🟢 AuthViewModel: Backend response parsed successfully")
+            print("🟢 AuthViewModel: User ID: \(authResponse.user.userId)")
+            
+            // Save token
+            saveToken(authResponse.idToken)
+            print("🟢 AuthViewModel: Token saved")
+            
+            // Set user
+            user = authResponse.user
+            isAuthenticated = true
+            print("🟢 AuthViewModel: Authentication state updated - isAuthenticated: \(isAuthenticated)")
+        } catch {
+            print("❌ AuthViewModel: JSON decode error: \(error)")
+            if let decodingError = error as? DecodingError {
+                switch decodingError {
+                case .dataCorrupted(let context):
+                    print("❌ AuthViewModel: Data corrupted: \(context)")
+                case .keyNotFound(let key, let context):
+                    print("❌ AuthViewModel: Key not found: \(key.stringValue) - \(context)")
+                case .typeMismatch(let type, let context):
+                    print("❌ AuthViewModel: Type mismatch: \(type) - \(context)")
+                case .valueNotFound(let type, let context):
+                    print("❌ AuthViewModel: Value not found: \(type) - \(context)")
+                @unknown default:
+                    print("❌ AuthViewModel: Unknown decoding error")
+                }
+            }
+            throw error
+        }
     }
     
     func fetchUserInfo() async {
@@ -169,34 +236,49 @@ class AuthViewModel: NSObject, ObservableObject {
 extension AuthViewModel: ASAuthorizationControllerDelegate {
     
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        print("🟢 AuthViewModel: didCompleteWithAuthorization called")
         if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+            print("🟢 AuthViewModel: Got Apple ID credential")
             guard let identityTokenData = appleIDCredential.identityToken,
                   let identityToken = String(data: identityTokenData, encoding: .utf8) else {
+                print("❌ AuthViewModel: Failed to get identity token")
                 errorMessage = "Failed to get identity token"
                 return
             }
+            print("🟢 AuthViewModel: Got identity token (length: \(identityToken.count))")
             
             guard let authorizationCodeData = appleIDCredential.authorizationCode,
                   let authorizationCode = String(data: authorizationCodeData, encoding: .utf8) else {
+                print("❌ AuthViewModel: Failed to get authorization code")
                 errorMessage = "Failed to get authorization code"
                 return
             }
+            print("🟢 AuthViewModel: Got authorization code (length: \(authorizationCode.count))")
             
             // Authenticate with backend
+            print("🟢 AuthViewModel: Calling authenticateWithBackend...")
             Task {
                 do {
                     try await authenticateWithBackend(
                         identityToken: identityToken,
                         authorizationCode: authorizationCode
                     )
+                    print("✅ AuthViewModel: Authentication successful!")
                 } catch {
+                    print("❌ AuthViewModel: Authentication failed: \(error.localizedDescription)")
                     errorMessage = "Authentication failed: \(error.localizedDescription)"
                 }
             }
+        } else {
+            print("❌ AuthViewModel: Credential is not ASAuthorizationAppleIDCredential")
         }
     }
     
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        print("❌ AuthViewModel: didCompleteWithError called: \(error.localizedDescription)")
+        if let authError = error as? ASAuthorizationError {
+            print("❌ AuthViewModel: ASAuthorizationError code: \(authError.code.rawValue)")
+        }
         errorMessage = "Sign in with Apple failed: \(error.localizedDescription)"
     }
 }
@@ -206,11 +288,14 @@ extension AuthViewModel: ASAuthorizationControllerDelegate {
 extension AuthViewModel: ASAuthorizationControllerPresentationContextProviding {
     
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        print("🟡 AuthViewModel: presentationAnchor called")
         // Get the window from the scene
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first else {
+            print("❌ AuthViewModel: No window available for presentation")
             fatalError("No window available")
         }
+        print("🟢 AuthViewModel: Returning window for presentation")
         return window
     }
 }
@@ -222,6 +307,13 @@ struct AuthResponse: Codable {
     let refreshToken: String?
     let expiresIn: Int
     let user: User
+    
+    enum CodingKeys: String, CodingKey {
+        case idToken = "id_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+        case user
+    }
 }
 
 struct User: Codable, Identifiable {

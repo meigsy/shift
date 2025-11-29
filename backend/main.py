@@ -140,6 +140,21 @@ async def get_current_user(
     
     token = parts[1]
     
+    # Handle mock tokens for testing (bypass JWT verification)
+    if token.startswith("mock."):
+        # For mock tokens, use a default mock user
+        # This allows testing the full flow without real Identity Platform tokens
+        mock_user_id = "mock-user-default"
+        user = users_repo.get_user(mock_user_id)
+        if not user:
+            # Create default mock user if it doesn't exist
+            user = users_repo.upsert_user(
+                user_id=mock_user_id,
+                email="test@example.com",
+                display_name="Test User"
+            )
+        return user
+    
     try:
         # Verify Identity Platform token
         claims = verify_identity_platform_token(token)

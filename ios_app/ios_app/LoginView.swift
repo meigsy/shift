@@ -49,6 +49,23 @@ struct LoginView: View {
                     .cornerRadius(8)
                 }
                 
+                // Test bypass button for simulator (Sign in with Apple doesn't work reliably in simulator)
+                Button {
+                    authViewModel.signInWithMock()
+                } label: {
+                    HStack {
+                        Image(systemName: "wrench.and.screwdriver")
+                            .font(.system(size: 18, weight: .medium))
+                        Text("Test Sign In (Bypass)")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+                }
+                
                 if let errorMessage = authViewModel.errorMessage {
                     Text(errorMessage)
                         .font(.caption)

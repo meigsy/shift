@@ -178,16 +178,7 @@ struct MainView: View {
 }
 
 #Preview {
-    let authViewModel = AuthViewModel()
-    authViewModel.isAuthenticated = true
-    authViewModel.user = User(
-        id: "test-user",
-        userId: "test-user",
-        email: "test@example.com",
-        displayName: "Test User",
-        createdAt: nil
-    )
-    return MainView(authViewModel: authViewModel)
+    MainView(authViewModel: AuthViewModel())
 }
 
 

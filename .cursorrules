@@ -9,6 +9,13 @@ Always use `uv` for Python package management and environment setup:
 
 Python version: 3.11+
 
+# Code Changes
+
+- Do NOT write, edit, or modify code unless the user explicitly asks you to
+- When in ask mode, only provide suggestions, explanations, or proposed changes as text
+- Only make code changes when the user explicitly requests them (e.g., "fix this", "update that", "implement X")
+- If you identify an issue, explain it and wait for the user to ask you to fix it
+
 # General Development Principles
 
 - KISS (Keep It Simple, Stupid)
