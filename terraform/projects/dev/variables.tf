@@ -29,6 +29,12 @@ variable "apple_key_id" {
   default     = ""  # Optional - only needed for real Sign in with Apple
 }
 
+variable "enable_identity_platform" {
+  description = "Enable Identity Platform (required for real Apple auth)"
+  type        = bool
+  default     = false  # Set to true when you have Apple Developer account
+}
+
 variable "enable_apple_auth" {
   description = "Enable Apple Sign in with Apple OIDC provider"
   type        = bool

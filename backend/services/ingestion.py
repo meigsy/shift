@@ -141,11 +141,10 @@ def process_watch_events(batch: HealthDataBatch, user_id: str) -> Dict[str, Any]
             data_str = json.dumps(trigger_data)
             data = data_str.encode("utf-8")
             
-            # Add ordering key to ensure sequential processing per user
+            # Publish trigger event (no ordering key - topic doesn't have ordering enabled)
             future = publisher.publish(
                 topic_path, 
-                data, 
-                ordering_key=user_id,
+                data,
                 origin="ios_ingestion"
             )
             message_id = future.result()

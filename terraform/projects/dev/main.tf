@@ -64,8 +64,9 @@ resource "google_project_service" "pubsub" {
   disable_on_destroy = false
 }
 
-# Enable Identity Platform
+# Enable Identity Platform (optional - only needed for real Apple auth)
 resource "google_identity_platform_config" "default" {
+  count   = var.enable_identity_platform ? 1 : 0
   project = var.project_id
   
   depends_on = [google_project_service.identity_toolkit]
@@ -73,14 +74,14 @@ resource "google_identity_platform_config" "default" {
 
 # Configure Apple as OIDC provider (conditional - only if enabled)
 resource "google_identity_platform_oauth_idp_config" "apple" {
-  count          = var.enable_apple_auth ? 1 : 0
-  project        = var.project_id
-  name           = "apple"
-  display_name   = "Apple"
-  enabled        = true
-  client_id      = var.apple_client_id
-  client_secret  = var.apple_client_secret
-  issuer         = "https://appleid.apple.com"
+  count         = var.enable_identity_platform && var.enable_apple_auth ? 1 : 0
+  project       = var.project_id
+  name          = "apple"
+  display_name  = "Apple"
+  enabled       = true
+  client_id     = var.apple_client_id
+  client_secret = var.apple_client_secret
+  issuer        = "https://appleid.apple.com"
   
   depends_on = [google_identity_platform_config.default]
 }
@@ -170,8 +171,7 @@ resource "google_cloud_run_service" "backend" {
   }
 
   depends_on = [
-    google_project_service.cloud_run,
-    google_identity_platform_config.default
+    google_project_service.cloud_run
   ]
 }
 

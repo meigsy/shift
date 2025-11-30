@@ -17,10 +17,11 @@ struct ios_appApp: App {
     // Set useMockAuth: true to test without Apple Developer account
     // Set useMockAuth: false for production (requires Apple Developer account)
     @StateObject private var authViewModel = AuthViewModel(
-        backendBaseURL: "http://localhost:8080",  // Change to your backend URL
+        backendBaseURL: "https://shift-backend-meqmyk4w5q-uc.a.run.app",  // Deployed Cloud Run URL
         useMockAuth: true  // Set to false when ready for production
     )
     @StateObject private var syncServiceContainer = SyncServiceContainer()
+    private let syncCoordinator = SyncCoordinator()
     
     var body: some Scene {
         WindowGroup {
@@ -63,8 +64,8 @@ struct ios_appApp: App {
             return
         }
         
-        // Start observing updates - capture syncServiceContainer to access syncService
-        healthKitManager.startObservingHealthKitUpdates { [syncServiceContainer] in
+        // Start observing updates - capture syncServiceContainer and syncCoordinator
+        healthKitManager.startObservingHealthKitUpdates { [syncServiceContainer, syncCoordinator] in
             // Callback when new data arrives
             print("🔔 HealthKit data update detected, triggering sync")
             
@@ -73,8 +74,12 @@ struct ios_appApp: App {
                 return
             }
             
-            // Request sync (debounced and deduplicated)
-            syncService.requestSync()
+            // Request sync through coordinator (coalesces multiple rapid requests)
+            Task {
+                await syncCoordinator.requestSync {
+                    await syncService.syncNow()
+                }
+            }
         }
         
         print("✅ HealthKit observers started")

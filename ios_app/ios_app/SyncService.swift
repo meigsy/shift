@@ -51,6 +51,12 @@ class SyncService {
         }
     }
     
+    /// Perform sync immediately (called by SyncCoordinator)
+    /// This is the actual sync work that SyncCoordinator orchestrates
+    func syncNow() async {
+        await performSyncWithBackgroundTask()
+    }
+    
     /// Perform sync with background task management
     private func performSyncWithBackgroundTask() async {
         let application = UIApplication.shared

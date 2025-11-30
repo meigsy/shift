@@ -64,28 +64,23 @@ cd terraform/projects/dev
 # Initialize Terraform
 terraform init
 
+# Always use the same image name
+IMAGE_NAME="gcr.io/$PROJECT/shift-backend:latest"
+
 # Apply or Plan Terraform configuration
 if [ "$PLAN_ONLY" = "yes" ]; then
   echo "Running Terraform plan (dry run)..."
   terraform plan \
     -var="project_id=$PROJECT" \
-    -var="region=$REGION"
+    -var="region=$REGION" \
+    -var="backend_image=$IMAGE_NAME"
   echo "Terraform plan completed successfully."
 else
-  # If building container, get the image tag to pass to Terraform
-  if [ "$BUILD_CONTAINER" = "yes" ]; then
-    IMAGE_NAME="gcr.io/$PROJECT/shift-backend:latest"
-    terraform apply \
-      -var="project_id=$PROJECT" \
-      -var="region=$REGION" \
-      -var="backend_image=$IMAGE_NAME" \
-      -auto-approve
-  else
-    terraform apply \
-      -var="project_id=$PROJECT" \
-      -var="region=$REGION" \
-      -auto-approve
-  fi
+  terraform apply \
+    -var="project_id=$PROJECT" \
+    -var="region=$REGION" \
+    -var="backend_image=$IMAGE_NAME" \
+    -auto-approve
 fi
 
 cd ../..
@@ -99,8 +94,8 @@ if [ "$PLAN_ONLY" = "yes" ]; then
 else
   echo "✅ Deployment complete."
   
-  # Get Cloud Run URL from Terraform output
-  SERVICE_URL=$(cd terraform/projects/dev && terraform output -raw cloud_run_url 2>/dev/null || echo "")
+  # Get Cloud Run URL from Terraform output (we're already in terraform/projects/dev)
+  SERVICE_URL=$(terraform output -raw cloud_run_url 2>/dev/null || echo "")
   if [ -n "$SERVICE_URL" ]; then
     echo "🚀 Backend URL: $SERVICE_URL"
     echo ""
