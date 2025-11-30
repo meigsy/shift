@@ -73,52 +73,13 @@ struct ios_appApp: App {
                 return
             }
             
-            // Request background task and perform sync
-            Task { @MainActor in
-                await performSyncWithBackgroundTask(syncService: syncService)
-            }
+            // Request sync (debounced and deduplicated)
+            syncService.requestSync()
         }
         
         print("✅ HealthKit observers started")
     }
     
-    @MainActor
-    private func performSyncWithBackgroundTask(syncService: SyncService) async {
-        let application = UIApplication.shared
-        
-        // Request background task
-        var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
-        
-        backgroundTaskIdentifier = application.beginBackgroundTask(withName: "HealthKitSync") {
-            // Task expired
-            print("⏱️ Background task expired")
-            if backgroundTaskIdentifier != .invalid {
-                application.endBackgroundTask(backgroundTaskIdentifier)
-                backgroundTaskIdentifier = .invalid
-            }
-        }
-        
-        guard backgroundTaskIdentifier != .invalid else {
-            print("⚠️ Could not start background task")
-            return
-        }
-        
-        print("🔄 Starting background sync task")
-        
-        // Perform sync
-        do {
-            try await syncService.syncNewHealthData()
-            print("✅ Background sync completed")
-        } catch {
-            print("❌ Background sync failed: \(error.localizedDescription)")
-        }
-        
-        // End background task
-        if backgroundTaskIdentifier != .invalid {
-            application.endBackgroundTask(backgroundTaskIdentifier)
-            backgroundTaskIdentifier = .invalid
-        }
-    }
 }
 
 // Container class to hold SyncService and make it accessible in closures

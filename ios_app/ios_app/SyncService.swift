@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 
 @MainActor
 class SyncService {
@@ -41,8 +42,56 @@ class SyncService {
     
     // MARK: - Sync Logic
     
+    /// Request a sync (fire-and-forget)
+    /// Simply triggers the sync process with background task management
+    func requestSync() {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            await self.performSyncWithBackgroundTask()
+        }
+    }
+    
+    /// Perform sync with background task management
+    private func performSyncWithBackgroundTask() async {
+        let application = UIApplication.shared
+        
+        // Request background task
+        var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
+        
+        backgroundTaskIdentifier = application.beginBackgroundTask(withName: "HealthKitSync") {
+            // Task expired
+            print("⏱️ Background task expired")
+            if backgroundTaskIdentifier != .invalid {
+                application.endBackgroundTask(backgroundTaskIdentifier)
+                backgroundTaskIdentifier = .invalid
+            }
+        }
+        
+        guard backgroundTaskIdentifier != .invalid else {
+            print("⚠️ Could not start background task")
+            return
+        }
+        
+        print("🔄 Starting background sync task")
+        
+        // Perform sync
+        do {
+            try await syncNewHealthData()
+            print("✅ Background sync completed")
+        } catch {
+            print("❌ Background sync failed: \(error.localizedDescription)")
+        }
+        
+        // End background task
+        if backgroundTaskIdentifier != .invalid {
+            application.endBackgroundTask(backgroundTaskIdentifier)
+            backgroundTaskIdentifier = .invalid
+        }
+    }
+    
     /// Sync new health data since last sync timestamp
-    func syncNewHealthData() async throws {
+    private func syncNewHealthData() async throws {
+        
         let lastSync = lastSyncTimestamp()
         let now = Date()
         

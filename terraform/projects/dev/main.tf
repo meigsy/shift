@@ -43,6 +43,27 @@ resource "google_project_service" "secret_manager" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "firestore" {
+  service = "firestore.googleapis.com"
+  project = var.project_id
+  
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "bigquery" {
+  service = "bigquery.googleapis.com"
+  project = var.project_id
+  
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "pubsub" {
+  service = "pubsub.googleapis.com"
+  project = var.project_id
+  
+  disable_on_destroy = false
+}
+
 # Enable Identity Platform
 resource "google_identity_platform_config" "default" {
   project = var.project_id
@@ -50,15 +71,16 @@ resource "google_identity_platform_config" "default" {
   depends_on = [google_project_service.identity_toolkit]
 }
 
-# Configure Apple as OIDC provider
+# Configure Apple as OIDC provider (conditional - only if enabled)
 resource "google_identity_platform_oauth_idp_config" "apple" {
-  project          = var.project_id
-  name             = "apple"
-  display_name     = "Apple"
-  enabled          = true
-  client_id        = var.apple_client_id
-  client_secret    = var.apple_client_secret
-  issuer           = "https://appleid.apple.com"
+  count          = var.enable_apple_auth ? 1 : 0
+  project        = var.project_id
+  name           = "apple"
+  display_name   = "Apple"
+  enabled        = true
+  client_id      = var.apple_client_id
+  client_secret  = var.apple_client_secret
+  issuer         = "https://appleid.apple.com"
   
   depends_on = [google_identity_platform_config.default]
 }
@@ -70,8 +92,9 @@ resource "google_service_account" "backend" {
   project      = var.project_id
 }
 
-# Grant service account access to Secret Manager
+# Grant service account access to Secret Manager (only if Apple auth enabled)
 resource "google_secret_manager_secret_iam_member" "apple_private_key" {
+  count     = var.enable_apple_auth ? 1 : 0
   secret_id = var.apple_private_key_secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.backend.email}"
@@ -104,22 +127,22 @@ resource "google_cloud_run_service" "backend" {
         
         env {
           name  = "IDENTITY_PLATFORM_API_KEY"
-          value = var.identity_platform_api_key
+          value = var.identity_platform_api_key != "" ? var.identity_platform_api_key : "dummy"
         }
         
         env {
           name  = "APPLE_CLIENT_ID"
-          value = var.apple_client_id
+          value = var.apple_client_id != "" ? var.apple_client_id : "com.shift.ios-app"
         }
         
         env {
           name  = "APPLE_KEY_ID"
-          value = var.apple_key_id
+          value = var.apple_key_id != "" ? var.apple_key_id : ""
         }
         
         env {
           name  = "APPLE_TEAM_ID"
-          value = var.apple_team_id
+          value = var.apple_team_id != "" ? var.apple_team_id : ""
         }
         
         env {
@@ -148,7 +171,7 @@ resource "google_cloud_run_service" "backend" {
 
   depends_on = [
     google_project_service.cloud_run,
-    google_identity_platform_oauth_idp_config.apple
+    google_identity_platform_config.default
   ]
 }
 

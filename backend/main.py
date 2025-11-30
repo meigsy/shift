@@ -1,6 +1,7 @@
 """FastAPI application for SHIFT backend."""
 
-import os
+import secrets
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
@@ -15,6 +16,7 @@ from schemas import (
 from auth_apple import authenticate_with_apple
 from auth_identity_platform import verify_identity_platform_token, get_user_from_token
 from users_repo import users_repo
+from services.ingestion import process_watch_events
 
 app = FastAPI(
     title="SHIFT Backend API",
@@ -53,7 +55,7 @@ async def auth_apple(request: AppleAuthRequest):
             identity_token=request.identity_token,
             authorization_code=request.authorization_code
         )
-        
+
         # Extract user ID from Identity Platform response
         user_id = user_info.get("localId") or user_info.get("user_id")
         if not user_id:
@@ -61,7 +63,7 @@ async def auth_apple(request: AppleAuthRequest):
                 status_code=500,
                 detail="Identity Platform response missing user ID"
             )
-        
+
         # Upsert user in repository
         email = user_info.get("email")
         display_name = user_info.get("displayName")
@@ -70,14 +72,14 @@ async def auth_apple(request: AppleAuthRequest):
             email=email,
             display_name=display_name
         )
-        
+
         return AuthResponse(
             id_token=id_token,
             refresh_token=refresh_token,
             expires_in=expires_in,
             user=user
         )
-    
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -94,24 +96,22 @@ async def auth_apple_mock(request: AppleAuthRequest):
     
     WARNING: This endpoint should be disabled in production!
     """
-    import secrets
-    from datetime import datetime, timedelta
     
     # Generate a mock user ID based on the provided token (for consistency)
     mock_user_id = f"mock-user-{secrets.token_hex(8)}"
-    
+
     # Create mock user
     user = users_repo.upsert_user(
         user_id=mock_user_id,
         email="test@example.com",
         display_name="Test User"
     )
-    
+
     # Generate a mock ID token (just a random string - not a real JWT)
     # In real testing, you'd want to generate a proper JWT, but for mock purposes
     # this works since we're not verifying it
     mock_id_token = f"mock.id.token.{secrets.token_urlsafe(32)}"
-    
+
     return AuthResponse(
         id_token=mock_id_token,
         refresh_token=None,
@@ -121,7 +121,7 @@ async def auth_apple_mock(request: AppleAuthRequest):
 
 
 async def get_current_user(
-    authorization: Optional[str] = Header(None)
+        authorization: Optional[str] = Header(None)
 ) -> User:
     """Dependency to get current authenticated user from ID token."""
     if not authorization:
@@ -129,7 +129,7 @@ async def get_current_user(
             status_code=401,
             detail="Missing Authorization header"
         )
-    
+
     # Extract token from "Bearer <token>"
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
@@ -137,9 +137,9 @@ async def get_current_user(
             status_code=401,
             detail="Invalid Authorization header format. Expected: Bearer <token>"
         )
-    
+
     token = parts[1]
-    
+
     # Handle mock tokens for testing (bypass JWT verification)
     if token.startswith("mock."):
         # For mock tokens, use a default mock user
@@ -154,14 +154,14 @@ async def get_current_user(
                 display_name="Test User"
             )
         return user
-    
+
     try:
         # Verify Identity Platform token
         claims = verify_identity_platform_token(token)
-        
+
         # Get user info from token
         user_id = get_user_from_token(claims)
-        
+
         # Get user from repository
         user = users_repo.get_user(user_id)
         if not user:
@@ -169,9 +169,9 @@ async def get_current_user(
                 status_code=404,
                 detail="User not found"
             )
-        
+
         return user
-    
+
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
@@ -186,47 +186,28 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 @app.post("/watch_events", response_model=WatchEventsResponse)
 async def watch_events(
-    batch: HealthDataBatch,
-    current_user: User = Depends(get_current_user)
+        batch: HealthDataBatch,
+        current_user: User = Depends(get_current_user)
 ):
     """
     Receive health data batch from iOS app.
     
-    Requires authentication. Associates health data with authenticated user.
+    Delegates to ingestion service for deduplication, storage, and triggering.
     """
-    # Calculate total samples
-    total_samples = (
-        len(batch.heartRate) +
-        len(batch.hrv) +
-        len(batch.restingHeartRate) +
-        len(batch.walkingHeartRateAverage) +
-        len(batch.respiratoryRate) +
-        len(batch.oxygenSaturation) +
-        len(batch.vo2Max) +
-        len(batch.steps) +
-        len(batch.activeEnergy) +
-        len(batch.exerciseTime) +
-        len(batch.standTime) +
-        len(batch.timeInDaylight) +
-        len(batch.bodyMass) +
-        len(batch.bodyFatPercentage) +
-        len(batch.leanBodyMass) +
-        len(batch.sleep) +
-        len(batch.workouts)
-    )
-    
-    # TODO: Store health data in BigQuery or other storage
-    # For now, just acknowledge receipt
-    
-    return WatchEventsResponse(
-        message="Health data received",
-        samples_received=total_samples,
-        user_id=current_user.user_id
-    )
+    try:
+        result = process_watch_events(batch, current_user.user_id)
+        
+        return WatchEventsResponse(
+            message=result["message"],
+            samples_received=result["samples_received"],
+            user_id=current_user.user_id
+        )
+    except Exception as e:
+        print(f"❌ Ingestion error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process health data")
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8080)
-
-

@@ -13,17 +13,26 @@ variable "apple_team_id" {
   description = "Apple Developer Team ID"
   type        = string
   sensitive   = true
+  default     = ""  # Optional - only needed for real Sign in with Apple
 }
 
 variable "apple_client_id" {
   description = "Apple Service ID (Client ID)"
   type        = string
+  default     = ""  # Optional - only needed for real Sign in with Apple
 }
 
 variable "apple_key_id" {
   description = "Apple Key ID"
   type        = string
   sensitive   = true
+  default     = ""  # Optional - only needed for real Sign in with Apple
+}
+
+variable "enable_apple_auth" {
+  description = "Enable Apple Sign in with Apple OIDC provider"
+  type        = bool
+  default     = false  # Set to true when you have Apple Developer credentials
 }
 
 variable "apple_client_secret" {
@@ -43,6 +52,7 @@ variable "identity_platform_api_key" {
   description = "API key for Identity Platform REST API"
   type        = string
   sensitive   = true
+  default     = ""  # Optional for testing - can use mock auth endpoint
 }
 
 variable "backend_image" {

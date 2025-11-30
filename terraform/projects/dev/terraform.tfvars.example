@@ -1,0 +1,11 @@
+project_id = "YOUR_PROJECT_ID"
+region     = "us-central1"
+
+apple_team_id     = "YOUR_APPLE_TEAM_ID"
+apple_client_id   = "com.your.app.bundle.id"
+apple_key_id      = "YOUR_APPLE_KEY_ID"
+apple_client_secret = "YOUR_GENERATED_CLIENT_SECRET_JWT" # Or leave blank if using Secret Manager workaround
+apple_private_key_secret_id = "apple-private-key" 
+
+identity_platform_api_key = "YOUR_WEB_API_KEY_FROM_FIREBASE_CONSOLE"
+
