@@ -58,19 +58,19 @@ shift/
 │   ├── Sign in with Apple
 │   ├── Push notification handling
 │   └── Interaction event reporting
-├── backend/               # Backend service + pipelines
-│   ├── Authentication (Sign in with Apple)
-│   ├── Health data ingestion
-│   ├── User management
-│   └── pipelines/         # All data processing pipelines
-│       ├── watch_events/      # iOS → Pub/Sub → BigQuery
-│       ├── withings_events/   # Withings API → BigQuery
-│       ├── chat_events/       # Conversation → BigQuery
-│       ├── app_interactions/  # Surface reactions → BigQuery
-│       ├── state_estimator/   # → stress, recovery, fatigue, readiness
-│       ├── interaction_preferences/  # → user preferences from behavior
-│       ├── intervention_selector/    # → picks & delivers interventions
-│       └── intervention_catalog/     # Google Sheet sync (reference data)
+├── pipeline/              # All pipeline services (Cloud Run)
+│   ├── watch_events/      # FastAPI: Authentication + Health data ingestion
+│   │   ├── Authentication (Sign in with Apple)
+│   │   ├── Health data ingestion
+│   │   └── User management
+│   ├── state_estimator/   # State estimation pipeline
+│   │   └── → stress, recovery, fatigue, readiness
+│   ├── withings_events/   # Withings API → BigQuery (future)
+│   ├── chat_events/       # Conversation → BigQuery (future)
+│   ├── app_interactions/  # Surface reactions → BigQuery (future)
+│   ├── interaction_preferences/  # → user preferences from behavior (future)
+│   ├── intervention_selector/    # → picks & delivers interventions (future)
+│   └── intervention_catalog/     # Google Sheet sync (reference data) (future)
 ├── terraform/             # GCP infrastructure
 │   ├── projects/dev/
 │   └── projects/prod/

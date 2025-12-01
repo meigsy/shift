@@ -209,7 +209,7 @@ uv run python test_identity_platform_token.py
 
 ### Manual API Testing
 
-Use the test scripts in `backend/`:
+Use the test scripts in `pipeline/watch_events/`:
 - `test_mock_auth.py` - Test mock authentication flow
 - `test_identity_platform_token.py` - Test token verification
 

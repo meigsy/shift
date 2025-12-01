@@ -61,10 +61,17 @@ variable "identity_platform_api_key" {
   default     = ""  # Optional for testing - can use mock auth endpoint
 }
 
-variable "backend_image" {
-  description = "Container image for backend service"
+variable "watch_events_image" {
+  description = "Container image for watch_events pipeline service"
   type        = string
-  default     = "gcr.io/PROJECT_ID/shift-backend:latest"
+  default     = "gcr.io/PROJECT_ID/watch-events:latest"
 }
+
+variable "state_estimator_image" {
+  description = "Container image for state_estimator pipeline service"
+  type        = string
+  default     = "gcr.io/PROJECT_ID/state-estimator:latest"
+}
+
 
 

@@ -65,7 +65,7 @@ End-to-end scenarios:
 
 **Structure idea:**
 ```
-backend/pipelines/
+pipeline/
 ├── watch_events/
 │   ├── main.py
 │   ├── tests/

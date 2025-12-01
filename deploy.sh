@@ -19,7 +19,7 @@ usage() {
   echo ""
   echo "This script handles ALL GCP infrastructure updates:"
   echo "  - Terraform resources (tables, datasets, Pub/Sub, etc.)"
-  echo "  - Backend container builds"
+  echo "  - Pipeline container builds"
   echo "  - Pipeline validation"
   exit 1
 }
@@ -57,15 +57,15 @@ if [ "$BUILD_CONTAINER" = "yes" ]; then
   echo "📦 Enabling Build APIs..."
   gcloud services enable cloudbuild.googleapis.com containerregistry.googleapis.com --project "$PROJECT"
   
-  echo "🏗️  Building Backend Container..."
-  IMAGE_NAME="gcr.io/$PROJECT/shift-backend"
+  echo "🏗️  Building watch_events pipeline container..."
+  WATCH_EVENTS_IMAGE="gcr.io/$PROJECT/watch-events"
   TAG="latest"
   
-  cd backend
-  gcloud builds submit --tag "$IMAGE_NAME:$TAG" --project "$PROJECT"
-  cd ..
+  cd pipeline/watch_events
+  gcloud builds submit --tag "$WATCH_EVENTS_IMAGE:$TAG" --project "$PROJECT"
+  cd ../..
   
-  echo "✅ Container built and pushed: $IMAGE_NAME:$TAG"
+  echo "✅ Container built and pushed: $WATCH_EVENTS_IMAGE:$TAG"
 fi
 
 # -------------------------------------------------------------------------------
@@ -78,8 +78,9 @@ cd terraform/projects/dev
 # Initialize Terraform
 terraform init
 
-# Always use the same image name
-IMAGE_NAME="gcr.io/$PROJECT/shift-backend:latest"
+# Always use the same image names
+WATCH_EVENTS_IMAGE="gcr.io/$PROJECT/watch-events:latest"
+STATE_ESTIMATOR_IMAGE="gcr.io/$PROJECT/state-estimator:latest"
 
 # Apply or Plan Terraform configuration
 if [ "$PLAN_ONLY" = "yes" ]; then
@@ -87,13 +88,15 @@ if [ "$PLAN_ONLY" = "yes" ]; then
   terraform plan \
     -var="project_id=$PROJECT" \
     -var="region=$REGION" \
-    -var="backend_image=$IMAGE_NAME"
+    -var="watch_events_image=$WATCH_EVENTS_IMAGE" \
+    -var="state_estimator_image=$STATE_ESTIMATOR_IMAGE"
   echo "Terraform plan completed successfully."
 else
   terraform apply \
     -var="project_id=$PROJECT" \
     -var="region=$REGION" \
-    -var="backend_image=$IMAGE_NAME" \
+    -var="watch_events_image=$WATCH_EVENTS_IMAGE" \
+    -var="state_estimator_image=$STATE_ESTIMATOR_IMAGE" \
     -auto-approve
 fi
 
@@ -108,23 +111,30 @@ if [ "$PLAN_ONLY" = "yes" ]; then
 else
   echo "✅ Terraform deployment complete."
   
-  # Get Cloud Run URL from Terraform output (still in terraform/projects/dev from above)
-  SERVICE_URL=$(terraform output -raw cloud_run_url 2>/dev/null || echo "")
+  # Get Cloud Run URLs from Terraform output (still in terraform/projects/dev from above)
+  WATCH_EVENTS_URL=$(terraform output -raw watch_events_url 2>/dev/null || echo "")
+  STATE_ESTIMATOR_URL=$(terraform output -raw state_estimator_url 2>/dev/null || echo "")
   
   # Return to project root
   cd ../..
   
-  if [ -n "$SERVICE_URL" ]; then
-    echo "🚀 Backend URL: $SERVICE_URL"
+  if [ -n "$WATCH_EVENTS_URL" ]; then
+    echo "🚀 Watch Events Pipeline URL: $WATCH_EVENTS_URL"
     echo ""
-    echo "👉 Next Step: Update your iOS app's AuthViewModel.swift with this URL."
+    echo "👉 Next Step: Update your iOS app's ApiClient.swift with this URL."
+  fi
+  
+  if [ -n "$STATE_ESTIMATOR_URL" ]; then
+    echo ""
+    echo "🔐 State Estimator Pipeline URL: $STATE_ESTIMATOR_URL"
+    echo "   (Authenticated access only - use ADC bearer token)"
   fi
   
   # Validate pipeline if requested
   if [ "$VALIDATE_PIPELINE" = "yes" ]; then
     echo ""
     echo "🔍 Validating state_estimator pipeline..."
-    cd backend/pipelines/state_estimator
+    cd pipeline/state_estimator
     
     # Check if pipeline module exists
     if [ ! -f "src/main.py" ]; then
@@ -138,12 +148,12 @@ else
       
       echo "✅ Pipeline SQL files validated"
       echo "   To test pipeline manually:"
-      echo "   cd backend/pipelines/state_estimator"
+      echo "   cd pipeline/state_estimator"
       echo "   export GCP_PROJECT_ID=$PROJECT"
       echo "   uv run python -m src.main --project-id \$GCP_PROJECT_ID --skip-transform"
     fi
     
-    cd ../../..
+    cd ../..
   fi
 fi
 

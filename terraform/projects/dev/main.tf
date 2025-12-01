@@ -86,10 +86,10 @@ resource "google_identity_platform_oauth_idp_config" "apple" {
   depends_on = [google_identity_platform_config.default]
 }
 
-# Service account for Cloud Run backend
-resource "google_service_account" "backend" {
-  account_id   = "shift-backend-sa"
-  display_name = "SHIFT Backend Service Account"
+# Service account for watch_events pipeline
+resource "google_service_account" "watch_events" {
+  account_id   = "watch-events-sa"
+  display_name = "SHIFT Watch Events Pipeline Service Account"
   project      = var.project_id
 }
 
@@ -98,23 +98,23 @@ resource "google_secret_manager_secret_iam_member" "apple_private_key" {
   count     = var.enable_apple_auth ? 1 : 0
   secret_id = var.apple_private_key_secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.backend.email}"
+    member    = "serviceAccount:${google_service_account.watch_events.email}"
   
   depends_on = [google_project_service.secret_manager]
 }
 
-# Cloud Run service for backend
-resource "google_cloud_run_service" "backend" {
-  name     = "shift-backend"
+# Cloud Run service for watch_events pipeline
+resource "google_cloud_run_service" "watch_events" {
+  name     = "watch-events"
   location = var.region
   project  = var.project_id
 
   template {
     spec {
-      service_account_name = google_service_account.backend.email
+      service_account_name = google_service_account.watch_events.email
       
       containers {
-        image = var.backend_image
+        image = var.watch_events_image
         
         env {
           name  = "GCP_PROJECT_ID"
@@ -175,12 +175,65 @@ resource "google_cloud_run_service" "backend" {
   ]
 }
 
-# Allow unauthenticated access to Cloud Run (auth handled in app)
-resource "google_cloud_run_service_iam_member" "public_access" {
-  service  = google_cloud_run_service.backend.name
-  location = google_cloud_run_service.backend.location
+# Allow unauthenticated access to watch_events Cloud Run (auth handled in app)
+resource "google_cloud_run_service_iam_member" "watch_events_public_access" {
+  service  = google_cloud_run_service.watch_events.name
+  location = google_cloud_run_service.watch_events.location
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# Service account for state_estimator pipeline
+resource "google_service_account" "state_estimator" {
+  account_id   = "state-estimator-sa"
+  display_name = "SHIFT State Estimator Pipeline Service Account"
+  project      = var.project_id
+}
+
+# Cloud Run service for state_estimator pipeline
+resource "google_cloud_run_service" "state_estimator" {
+  name     = "state-estimator"
+  location = var.region
+  project  = var.project_id
+
+  template {
+    spec {
+      service_account_name = google_service_account.state_estimator.email
+      
+      containers {
+        image = var.state_estimator_image
+        
+        env {
+          name  = "GCP_PROJECT_ID"
+          value = var.project_id
+        }
+        
+        ports {
+          container_port = 8080
+        }
+        
+        resources {
+          limits = {
+            cpu    = "1000m"
+            memory = "512Mi"
+          }
+        }
+      }
+    }
+  }
+
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+
+  depends_on = [
+    google_project_service.cloud_run
+  ]
+}
+
+# state_estimator uses least privilege access
+# No explicit IAM bindings = authenticated project members (owners/editors) can access
+# No public access (allUsers) = only authenticated project members
 
 

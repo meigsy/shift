@@ -26,7 +26,7 @@ This pipeline follows the meigsy ai system patterns:
 ## Setup
 
 ```bash
-cd backend/pipelines/state_estimator
+cd pipeline/state_estimator
 uv sync
 ```
 
@@ -66,7 +66,7 @@ All scores are normalized to 0-1 range.
 ## File Structure
 
 ```
-backend/pipelines/state_estimator/
+pipeline/state_estimator/
 ├── sql/
 │   ├── views.sql            # View definitions (input, unprocessed)
 │   └── transform.sql        # Main transformation logic

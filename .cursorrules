@@ -24,3 +24,124 @@ Python version: 3.11+
 - Clear function and variable names
 - Add comments only where clarity is needed
 
+# Architecture & Patterns
+
+## Core Principles
+
+- **SQL-first**: All data transformations should be in SQL, not Python. Python only orchestrates SQL execution.
+- **Everything is a pipeline**: Standalone modules with inputs, outputs, and Pub/Sub triggers. Each pipeline is self-contained.
+- **Pipelines own outputs**: Each pipeline manages its own output tables and views.
+- **Minimal Python**: Python code should be minimal - just orchestration, validation, and SQL execution. Business logic lives in SQL.
+- **Repository Pattern for Testing**: Abstract database operations via Protocol/interface to enable mocking. Use mocked repositories in unit tests, real implementations in production.
+
+## Reference Patterns
+
+- **Follow meigsy ai system patterns**: When implementing similar functionality, reference the `meigsy_ai_system` repository for working patterns and structures.
+- **Source drives schema**: HealthKit/API shapes dictate table schemas. No shared contract files - read source code and write matching pipelines.
+
+## Technology Stack
+
+- **FastAPI + Pydantic**: For backend services (Cloud Run)
+- **Serverless where possible**: Prefer Cloud Run, Cloud Functions
+- **Pub/Sub as glue**: Event-driven communication between services
+- **Terraform for infrastructure**: All GCP resources (tables, datasets, services, IAM)
+
+# SQL Style Guidelines
+
+## Naming Conventions
+
+- **CTEs**: Use CTEs instead of subqueries, named `cte_[descriptive_name]`
+- **Views**: Name views as `v_[name]_v_[major_version_number]` (e.g., `v_state_estimator_input_v1`)
+- **Tables**: Use snake_case, match folder/service names where applicable
+
+## SQL Patterns
+
+- **Window functions for sorting/ranking**: Don't use ORDER BY in subqueries, use window functions
+- **SQL-first transformation logic**: All business logic should be in SQL files, not Python
+- **BigQuery SQL dialect**: Write for BigQuery compatibility (production target)
+
+## File Organization
+
+- **Views in pipeline SQL**: View definitions go in pipeline SQL files (e.g., `sql/views.sql`)
+- **DDL in Terraform**: Output tables defined in Terraform (not SQL files)
+
+# Naming & Structure Conventions
+
+## Consistent Resource Naming
+
+ALL resources for a service must use consistent naming patterns:
+- **Folder**: `pipeline/[service_name]/` (snake_case, lowercase)
+- **Cloud Run service**: `[service-name]` (hyphenated, lowercase)
+- **Service Account**: `[service-name]-sa` (hyphenated, lowercase)
+- **BigQuery tables/Pub/Sub**: `[service_name]` (snake_case, lowercase)
+- **Container image**: `[service-name]:[tag]` (hyphenated, lowercase)
+
+Example: `pipeline/watch_events/` → Cloud Run: `watch-events`, SA: `watch-events-sa`, table: `watch_events`
+
+## Directory Structure
+
+- **Flat structure**: Each deployable unit is a top-level directory
+- **Clear deployable boundaries**: No confusion about what deploys where
+- **Pipeline structure**: `pipeline/[pipeline_name]/` contains all code for that pipeline
+
+## File Naming
+
+- Use snake_case for Python files
+- Use descriptive, explicit names
+- Match service/resource names consistently
+
+# Infrastructure & Security
+
+## Access Control
+
+- **Least privilege**: Only grant permissions that are absolutely necessary
+- **No public access unless explicitly needed**: Block unauthenticated requests by default
+- **ADC bearer token for authentication**: Use `gcloud auth print-identity-token` for user authentication
+- **Service accounts for service-to-service**: Services authenticate via service accounts, not user credentials
+
+## IAM Configuration
+
+- **Default project permissions**: For user access, rely on default project-level permissions (owner/editor roles) rather than explicit service-level bindings when possible
+- **Explicit bindings only when necessary**: Only add explicit IAM bindings when default permissions aren't sufficient
+
+## Infrastructure as Code
+
+- **Terraform for all GCP resources**: Tables, datasets, Cloud Run services, IAM, Pub/Sub topics
+- **Single deploy.sh script**: One entry point for all GCP deployments
+- **Consistent variable naming**: Terraform variables match service names
+
+# Testing Strategy
+
+## Unit Tests
+
+- **Mock dependencies**: Use mocked repositories/interfaces for unit tests
+- **No database dependencies**: Unit tests should be fast and not require real databases
+- **Pytest standard patterns**: Use pytest fixtures, conftest.py for shared setup
+
+## SQL Testing
+
+- **Manual validation in BigQuery**: Don't use local SQLite/DuckDB for SQL testing due to syntax differences
+- **Repository pattern enables mocking**: Mock database operations, test Python logic separately
+
+## Test Coverage
+
+- **Feature test coverage over 100% unit coverage**: Focus on testing flows and main use cases
+- **Fast feedback**: Tests should run quickly without external dependencies
+
+# Deployment Patterns
+
+## Deployment Script
+
+- **Single deploy.sh**: All GCP deployments go through one script
+- **Validate before deploy**: Check Terraform, build containers, then deploy
+- **Clear separation of deployable units**: Each pipeline/service deploys independently
+
+## Container Images
+
+- **Build and push before Terraform**: Container images must exist before Terraform creates Cloud Run services
+- **Consistent naming**: Image names match service names (hyphenated, lowercase)
+
+## Environment Management
+
+- **Dev/prod separation**: Use separate Terraform projects for dev and prod
+- **Environment variables**: Pass via Terraform, not hardcoded in containers
