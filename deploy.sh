@@ -111,6 +111,9 @@ else
   # Get Cloud Run URL from Terraform output (still in terraform/projects/dev from above)
   SERVICE_URL=$(terraform output -raw cloud_run_url 2>/dev/null || echo "")
   
+  # Return to project root
+  cd ../..
+  
   if [ -n "$SERVICE_URL" ]; then
     echo "🚀 Backend URL: $SERVICE_URL"
     echo ""
@@ -142,7 +145,7 @@ else
     
     cd ../..
   fi
-  
-  echo ""
-  echo "✅ All deployments complete!"
 fi
+
+echo ""
+echo "✅ All deployments complete!"
