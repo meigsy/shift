@@ -1,6 +1,14 @@
 -- Transform: Calculate state estimates from unprocessed inputs
 -- This reads from the unprocessed view and inserts results into state_estimates table
 
+INSERT INTO shift_data.state_estimates (
+    user_id,
+    timestamp,
+    recovery,
+    readiness,
+    stress,
+    fatigue
+)
 WITH cte_unprocessed AS (
     SELECT
         user_id,
@@ -31,13 +39,7 @@ cte_normalized_metrics AS (
         -- Scale to 0-1: workout_energy / 1000 (1000 kcal is high intensity)
         LEAST(1.0, workout_energy / 1000.0) AS normalized_workout_intensity,
         -- Normalize steps (10k steps = 1.0)
-        LEAST(1.0, steps_value / 10000.0) AS normalized_activity,
-        -- Raw values for reference
-        hrv_value,
-        resting_hr_value,
-        sleep_minutes,
-        workout_energy,
-        steps_value
+        LEAST(1.0, steps_value / 10000.0) AS normalized_activity
     FROM cte_unprocessed
 ),
 cte_state_scores AS (
@@ -73,23 +75,8 @@ cte_state_scores AS (
             ((1.0 - normalized_sleep) * 0.5) +
             (normalized_workout_intensity * 0.3) +
             ((1.0 - normalized_activity) * 0.2)
-        ) AS fatigue,
-        -- Store normalized values for debugging
-        normalized_hrv,
-        normalized_resting_hr,
-        normalized_sleep,
-        normalized_workout_intensity,
-        normalized_activity
+        ) AS fatigue
     FROM cte_normalized_metrics
-)
--- Insert state estimates
-INSERT INTO shift_data.state_estimates (
-    user_id,
-    timestamp,
-    recovery,
-    readiness,
-    stress,
-    fatigue
 )
 SELECT
     user_id,
@@ -98,5 +85,5 @@ SELECT
     readiness,
     stress,
     fatigue
-FROM cte_state_scores;
+FROM cte_state_scores
 
