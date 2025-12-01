@@ -65,7 +65,7 @@ End-to-end scenarios:
 
 **Structure idea:**
 ```
-pipelines/
+backend/pipelines/
 ├── watch_events/
 │   ├── main.py
 │   ├── tests/
@@ -123,6 +123,9 @@ pipelines/
 - Standard Python testing patterns (pytest, fixtures) apply to backend
 - Focus on "feature test coverage" of flows, not 100% unit test coverage
 - Goal: Verify main use cases work without long cycle times (jogs, stress induction, etc.)
+
+
+
 
 
 

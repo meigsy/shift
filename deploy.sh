@@ -124,7 +124,7 @@ else
   if [ "$VALIDATE_PIPELINE" = "yes" ]; then
     echo ""
     echo "🔍 Validating state_estimator pipeline..."
-    cd pipelines/state_estimator
+    cd backend/pipelines/state_estimator
     
     # Check if pipeline module exists
     if [ ! -f "src/main.py" ]; then
@@ -138,12 +138,12 @@ else
       
       echo "✅ Pipeline SQL files validated"
       echo "   To test pipeline manually:"
-      echo "   cd pipelines/state_estimator"
+      echo "   cd backend/pipelines/state_estimator"
       echo "   export GCP_PROJECT_ID=$PROJECT"
       echo "   uv run python -m src.main --project-id \$GCP_PROJECT_ID --skip-transform"
     fi
     
-    cd ../..
+    cd ../../..
   fi
 fi
 
