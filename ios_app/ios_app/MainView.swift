@@ -9,7 +9,7 @@ import SwiftUI
 
 struct MainView: View {
     @ObservedObject var authViewModel: AuthViewModel
-    @StateObject private var healthKit = HealthKitManager()
+    @EnvironmentObject var healthKit: HealthKitManager
     
     @State private var heartRates: [HeartRateSample] = []
     @State private var hrvSamples: [HRVSample] = []
@@ -131,20 +131,6 @@ struct MainView: View {
                         Text("HRV (last 7 days)")
                     }
                     
-                    Section {
-                        Button {
-                            Task {
-                                await fetchAllData()
-                            }
-                        } label: {
-                            if isLoading {
-                                ProgressView()
-                            } else {
-                                Label("Refresh Data", systemImage: "arrow.clockwise")
-                            }
-                        }
-                        .disabled(isLoading)
-                    }
                 }
             }
             .navigationTitle("SHIFT")
@@ -159,6 +145,18 @@ struct MainView: View {
                     Task {
                         await fetchAllData()
                     }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                // Refresh data when app comes to foreground
+                Task {
+                    await fetchAllData()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .healthDataSyncCompleted)) { _ in
+                // Refresh UI when sync completes
+                Task {
+                    await fetchAllData()
                 }
             }
         }

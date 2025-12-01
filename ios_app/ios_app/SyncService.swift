@@ -8,6 +8,10 @@
 import Foundation
 import UIKit
 
+extension Notification.Name {
+    static let healthDataSyncCompleted = Notification.Name("healthDataSyncCompleted")
+}
+
 @MainActor
 class SyncService {
     
@@ -119,6 +123,9 @@ class SyncService {
         // Update last sync timestamp on success
         updateLastSyncTimestamp(now)
         print("✅ Sync successful, updated timestamp to \(now)")
+        
+        // Notify that sync completed (for UI refresh)
+        NotificationCenter.default.post(name: .healthDataSyncCompleted, object: nil)
     }
     
     // MARK: - HTTP POST
