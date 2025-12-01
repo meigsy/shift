@@ -54,6 +54,50 @@ EOF
   depends_on = [google_bigquery_dataset.shift_data]
 }
 
+# BigQuery Table for State Estimates
+resource "google_bigquery_table" "state_estimates" {
+  dataset_id = google_bigquery_dataset.shift_data.dataset_id
+  table_id   = "state_estimates"
+  project    = var.project_id
+
+  schema = <<EOF
+[
+  {
+    "name": "user_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "timestamp",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "recovery",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "readiness",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "stress",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "fatigue",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  }
+]
+EOF
+
+  depends_on = [google_bigquery_dataset.shift_data]
+}
+
 # Pub/Sub Topic for Watch Events
 resource "google_pubsub_topic" "watch_events" {
   name    = "watch_events"

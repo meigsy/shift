@@ -1,0 +1,26 @@
+[project]
+name = "state-estimator"
+version = "0.1.0"
+description = "State Estimator Pipeline - transforms watch_events into state estimates"
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-bigquery>=3.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.12.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
