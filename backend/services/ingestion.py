@@ -144,8 +144,7 @@ def process_watch_events(batch: HealthDataBatch, user_id: str) -> Dict[str, Any]
             # Publish trigger event (no ordering key - topic doesn't have ordering enabled)
             future = publisher.publish(
                 topic_path, 
-                data,
-                origin="ios_ingestion"
+                data
             )
             message_id = future.result()
             print(f"✅ Published trigger to Pub/Sub: {message_id}")
