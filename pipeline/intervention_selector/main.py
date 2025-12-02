@@ -1,6 +1,7 @@
 """Cloud Function entry point for intervention selector pipeline."""
 
 import base64
+import binascii
 import json
 import logging
 import os
@@ -107,36 +108,57 @@ def intervention_selector(cloud_event: CloudEvent) -> None:
     try:
         # Extract message data from Pub/Sub CloudEvent
         message_data = cloud_event.get_data()
-        if message_data:
-            if isinstance(message_data, bytes):
-                decoded_data = base64.b64decode(message_data).decode("utf-8")
-                try:
-                    payload = json.loads(decoded_data)
-                    logger.info(f"Received Pub/Sub message: {payload}")
-                except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON Pub/Sub message: {decoded_data}")
-                    return
-            elif isinstance(message_data, dict):
-                payload = message_data
-                logger.info(f"Received Pub/Sub message: {payload}")
-            else:
-                logger.warning(f"Unexpected message data type: {type(message_data)}")
-                return
-
-            # Extract user_id and timestamp from payload
-            user_id = payload.get("user_id")
-            timestamp = payload.get("timestamp")
-
-            if not user_id or not timestamp:
-                logger.error(f"Missing user_id or timestamp in payload: {payload}")
-                return
-
-            # Process state estimate
-            logger.info(f"Processing state estimate for user {user_id} at {timestamp}")
-            process_state_estimate(user_id=user_id, timestamp=timestamp)
-
-        else:
+        if not message_data:
             logger.warning("Received empty Pub/Sub message")
+            return
+
+        # CloudEvent from Pub/Sub wraps the message in a "message" field:
+        # {
+        #   "message": {
+        #       "data": "...base64...",
+        #       ...
+        #   },
+        #   "subscription": "..."
+        # }
+        payload: Dict[str, Any] | None = None
+
+        if isinstance(message_data, dict) and "message" in message_data:
+            # Path 1: Correctly decode Pub/Sub enveloped message
+            msg = message_data.get("message", {})
+            data_field = msg.get("data")
+
+            if isinstance(data_field, str):  # Pub/Sub data field is a base64 string
+                try:
+                    # Decode base64-encoded JSON payload
+                    data_bytes = base64.b64decode(data_field)
+                    decoded_data = data_bytes.decode("utf-8")
+                    payload = json.loads(decoded_data)
+                    logger.info(f"Received Pub/Sub message (decoded from envelope): {payload}")
+                except (binascii.Error, ValueError) as e:
+                    logger.error(f"Base64 decoding failed: {e}")
+                    return
+                except json.JSONDecodeError:
+                    logger.warning(f"Received non-JSON Pub/Sub message data: {decoded_data}")
+                    return
+            else:
+                logger.warning(f"Pub/Sub message missing 'data' field or unexpected type: {type(data_field)}")
+                return
+
+        if not payload:
+            logger.warning("Decoded payload is empty or not handled by an expected format.")
+            return
+
+        # Extract user_id and timestamp from payload
+        user_id = payload.get("user_id")
+        timestamp = payload.get("timestamp")
+
+        if not user_id or not timestamp:
+            logger.error(f"Missing user_id or timestamp in payload: {payload}")
+            return
+
+        # Process state estimate
+        logger.info(f"Processing state estimate for user {user_id} at {timestamp}")
+        process_state_estimate(user_id=user_id, timestamp=timestamp)
 
     except Exception as e:
         logger.error(f"Error in intervention selector pipeline: {e}", exc_info=True)

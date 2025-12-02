@@ -102,7 +102,74 @@ else
   exit 1
 fi
 
-# Step 4: Wait for intervention_selector to process
+# Step 4: Insert a high-stress state_estimate row to guarantee intervention
+echo ""
+echo "📝 Step 4: Inserting high-stress state_estimate row for guaranteed intervention..."
+echo ""
+
+bq query --use_legacy_sql=false --project_id="$PROJECT" <<EOF
+INSERT INTO \`$PROJECT.$DATASET.state_estimates\` (
+  user_id,
+  timestamp,
+  recovery,
+  readiness,
+  stress,
+  fatigue
+)
+VALUES (
+  '$TEST_USER_ID',
+  CURRENT_TIMESTAMP(),
+  0.5,
+  0.5,
+  0.95,
+  0.1
+)
+EOF
+
+if [ $? -eq 0 ]; then
+  echo "✅ High-stress state_estimate row inserted successfully"
+else
+  echo "❌ Failed to insert high-stress state_estimate row"
+  exit 1
+fi
+
+# Step 5: Publish to state_estimates Pub/Sub topic to trigger intervention_selector
+echo ""
+echo "📤 Step 5: Publishing to state_estimates Pub/Sub topic..."
+echo ""
+
+# Get latest state_estimate timestamp for this user (for the Pub/Sub payload)
+STATE_ESTIMATE_TIMESTAMP=$(bq query --use_legacy_sql=false --project_id="$PROJECT" --format=csv --quiet <<EOF
+SELECT
+  timestamp
+FROM \`$PROJECT.$DATASET.state_estimates\`
+WHERE user_id = '$TEST_USER_ID'
+ORDER BY timestamp DESC
+LIMIT 1
+EOF
+)
+
+# Extract timestamp value (skip header line)
+STATE_ESTIMATE_TIMESTAMP_VALUE=$(echo "$STATE_ESTIMATE_TIMESTAMP" | tail -n 1 | tr -d ' ')
+
+if [ -z "$STATE_ESTIMATE_TIMESTAMP_VALUE" ]; then
+  echo "❌ Failed to fetch state_estimate timestamp for Pub/Sub payload"
+  exit 1
+fi
+
+STATE_MESSAGE='{"user_id": "'$TEST_USER_ID'", "timestamp": "'$STATE_ESTIMATE_TIMESTAMP_VALUE'"}'
+
+gcloud pubsub topics publish state_estimates \
+  --message="$STATE_MESSAGE" \
+  --project="$PROJECT"
+
+if [ $? -eq 0 ]; then
+  echo "✅ Pub/Sub message to state_estimates topic published successfully"
+else
+  echo "❌ Failed to publish Pub/Sub message to state_estimates topic"
+  exit 1
+fi
+
 echo ""
 echo "⏳ Waiting 10 seconds for intervention_selector to process..."
 sleep 10
