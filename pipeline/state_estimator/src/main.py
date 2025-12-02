@@ -1,47 +1,14 @@
-"""Main entry point for state estimator pipeline."""
+"""CLI entry point for state estimator pipeline (for local testing)."""
 
 import os
 import sys
 from pathlib import Path
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.repositories.bigquery_repo import BigQueryRepository
-
-
-def run_pipeline(
-    repository,
-    create_views: bool = True,
-    run_transform: bool = True,
-    verbose: bool = True,
-):
-    """Run the state estimator pipeline.
-
-    Args:
-        repository: Repository instance (implements Repository protocol)
-        create_views: Whether to create/update views
-        run_transform: Whether to run transformation
-        verbose: Whether to print progress
-    """
-    base_path = Path(__file__).parent.parent
-    sql_dir = base_path / "sql"
-
-    if create_views:
-        if verbose:
-            print("[State Estimator] Creating/updating views...")
-        views_path = sql_dir / "views.sql"
-        repository.execute_script(views_path, verbose=verbose)
-        if verbose:
-            print("[State Estimator] Views created/updated successfully")
-
-    if run_transform:
-        if verbose:
-            print("[State Estimator] Running transformation...")
-        transform_path = sql_dir / "transform.sql"
-        repository.execute_script(transform_path, verbose=verbose)
-        if verbose:
-            print("[State Estimator] Transformation completed successfully")
+from src.pipeline import run_pipeline
 
 
 def main():
@@ -94,6 +61,11 @@ def main():
         run_transform=not args.skip_transform,
         verbose=not args.quiet,
     )
+
+
+# Export for backwards compatibility
+from src.pipeline import run_pipeline as _run_pipeline
+run_pipeline = _run_pipeline
 
 
 if __name__ == "__main__":

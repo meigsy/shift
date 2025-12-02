@@ -67,11 +67,5 @@ variable "watch_events_image" {
   default     = "gcr.io/PROJECT_ID/watch-events:latest"
 }
 
-variable "state_estimator_image" {
-  description = "Container image for state_estimator pipeline service"
-  type        = string
-  default     = "gcr.io/PROJECT_ID/state-estimator:latest"
-}
-
 
 

@@ -3,6 +3,10 @@
 # Single entry point for ALL GCP deployments and updates
 # ALWAYS use this script to update GCP resources
 
+# Get the directory where this script is located, then resolve to absolute path
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+
 PROJECT="shift-dev-478422"
 REGION="us-central1"
 
@@ -49,6 +53,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Define absolute paths
+TERRAFORM_DIR="$PROJECT_ROOT/terraform/projects/dev"
+WATCH_EVENTS_DIR="$PROJECT_ROOT/pipeline/watch_events"
+STATE_ESTIMATOR_DIR="$PROJECT_ROOT/pipeline/state_estimator"
+
 # -------------------------------------------------------------------------------
 # Pre-Terraform Actions
 # -------------------------------------------------------------------------------
@@ -61,9 +70,7 @@ if [ "$BUILD_CONTAINER" = "yes" ]; then
   WATCH_EVENTS_IMAGE="gcr.io/$PROJECT/watch-events"
   TAG="latest"
   
-  cd pipeline/watch_events
-  gcloud builds submit --tag "$WATCH_EVENTS_IMAGE:$TAG" --project "$PROJECT"
-  cd ../..
+  gcloud builds submit --tag "$WATCH_EVENTS_IMAGE:$TAG" --project "$PROJECT" "$WATCH_EVENTS_DIR"
   
   echo "✅ Container built and pushed: $WATCH_EVENTS_IMAGE:$TAG"
 fi
@@ -73,34 +80,31 @@ fi
 # -------------------------------------------------------------------------------
 
 echo "🌍 Running Terraform..."
-cd terraform/projects/dev
 
 # Initialize Terraform
-terraform init
+(cd "$TERRAFORM_DIR" && terraform init)
 
 # Always use the same image names
 WATCH_EVENTS_IMAGE="gcr.io/$PROJECT/watch-events:latest"
-STATE_ESTIMATOR_IMAGE="gcr.io/$PROJECT/state-estimator:latest"
 
 # Apply or Plan Terraform configuration
 if [ "$PLAN_ONLY" = "yes" ]; then
   echo "Running Terraform plan (dry run)..."
-  terraform plan \
+  (cd "$TERRAFORM_DIR" && terraform plan \
     -var="project_id=$PROJECT" \
     -var="region=$REGION" \
-    -var="watch_events_image=$WATCH_EVENTS_IMAGE" \
-    -var="state_estimator_image=$STATE_ESTIMATOR_IMAGE"
+    -var="watch_events_image=$WATCH_EVENTS_IMAGE")
   echo "Terraform plan completed successfully."
 else
-  terraform apply \
+  (cd "$TERRAFORM_DIR" && terraform apply \
     -var="project_id=$PROJECT" \
     -var="region=$REGION" \
     -var="watch_events_image=$WATCH_EVENTS_IMAGE" \
-    -var="state_estimator_image=$STATE_ESTIMATOR_IMAGE" \
-    -auto-approve
+    -auto-approve)
 fi
 
-cd ../..
+# Get service account email from Terraform output
+STATE_ESTIMATOR_SA=$(cd "$TERRAFORM_DIR" && terraform output -raw state_estimator_service_account_email 2>/dev/null || echo "")
 
 # -------------------------------------------------------------------------------
 # Post-Terraform Actions
@@ -111,49 +115,60 @@ if [ "$PLAN_ONLY" = "yes" ]; then
 else
   echo "✅ Terraform deployment complete."
   
-  # Get Cloud Run URLs from Terraform output (still in terraform/projects/dev from above)
-  WATCH_EVENTS_URL=$(terraform output -raw watch_events_url 2>/dev/null || echo "")
-  STATE_ESTIMATOR_URL=$(terraform output -raw state_estimator_url 2>/dev/null || echo "")
+  # Deploy Cloud Function using gcloud (simple, handles everything)
+  echo ""
+  echo "⚡ Deploying state_estimator Cloud Function..."
   
-  # Return to project root
-  cd ../..
+  gcloud functions deploy state-estimator \
+    --gen2 \
+    --runtime=python311 \
+    --region="$REGION" \
+    --source="$STATE_ESTIMATOR_DIR" \
+    --entry-point=state_estimator \
+    --trigger-topic=watch_events \
+    --service-account="${STATE_ESTIMATOR_SA}" \
+    --set-env-vars="GCP_PROJECT_ID=$PROJECT,BQ_DATASET_ID=shift_data" \
+    --memory=512Mi \
+    --timeout=540s \
+    --max-instances=10 \
+    --min-instances=0 \
+    --project="$PROJECT"
+  
+  # Get Cloud Run URLs from Terraform output
+  WATCH_EVENTS_URL=$(cd "$TERRAFORM_DIR" && terraform output -raw watch_events_url 2>/dev/null || echo "")
   
   if [ -n "$WATCH_EVENTS_URL" ]; then
+    echo ""
     echo "🚀 Watch Events Pipeline URL: $WATCH_EVENTS_URL"
     echo ""
     echo "👉 Next Step: Update your iOS app's ApiClient.swift with this URL."
   fi
   
-  if [ -n "$STATE_ESTIMATOR_URL" ]; then
-    echo ""
-    echo "🔐 State Estimator Pipeline URL: $STATE_ESTIMATOR_URL"
-    echo "   (Authenticated access only - use ADC bearer token)"
-  fi
+  echo ""
+  echo "⚡ State Estimator Cloud Function deployed"
+  echo "   (Triggered automatically by Pub/Sub messages from watch_events)"
   
   # Validate pipeline if requested
   if [ "$VALIDATE_PIPELINE" = "yes" ]; then
     echo ""
     echo "🔍 Validating state_estimator pipeline..."
-    cd pipeline/state_estimator
     
     # Check if pipeline module exists
-    if [ ! -f "src/main.py" ]; then
+    if [ ! -f "$STATE_ESTIMATOR_DIR/src/main.py" ]; then
       echo "⚠️  Pipeline not found, skipping validation"
     else
       # Test that SQL files exist and are valid
-      if [ ! -f "sql/views.sql" ] || [ ! -f "sql/transform.sql" ]; then
+      if [ ! -f "$STATE_ESTIMATOR_DIR/sql/views.sql" ] || [ ! -f "$STATE_ESTIMATOR_DIR/sql/transform.sql" ]; then
         echo "❌ Missing SQL files in pipeline"
         exit 1
       fi
       
       echo "✅ Pipeline SQL files validated"
       echo "   To test pipeline manually:"
-      echo "   cd pipeline/state_estimator"
+      echo "   cd $STATE_ESTIMATOR_DIR"
       echo "   export GCP_PROJECT_ID=$PROJECT"
       echo "   uv run python -m src.main --project-id \$GCP_PROJECT_ID --skip-transform"
     fi
-    
-    cd ../..
   fi
 fi
 

@@ -3,9 +3,9 @@ output "watch_events_url" {
   value       = google_cloud_run_service.watch_events.status[0].url
 }
 
-output "state_estimator_url" {
-  description = "URL of the state_estimator Cloud Run service"
-  value       = google_cloud_run_service.state_estimator.status[0].url
+output "state_estimator_function_name" {
+  description = "Name of the state_estimator Cloud Function (deployed via gcloud)"
+  value       = "state-estimator"
 }
 
 output "identity_platform_project_id" {

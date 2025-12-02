@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import Mock, call
 
-from src.main import run_pipeline
+from src.pipeline import run_pipeline
 
 
 def test_run_pipeline_executes_views_and_transform(mock_repository, tmp_path):

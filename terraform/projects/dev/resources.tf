@@ -16,6 +16,23 @@ resource "google_bigquery_dataset" "shift_data" {
   location    = var.region
   description = "Primary dataset for SHIFT health data"
   
+  # Explicit access control - Terraform manages all access
+  access {
+    role          = "WRITER"
+    user_by_email = google_service_account.watch_events.email
+  }
+  
+  access {
+    role          = "WRITER"
+    user_by_email = google_service_account.state_estimator.email
+  }
+  
+  # Grant project owners/editors access (standard)
+  access {
+    role   = "OWNER"
+    special_group = "projectOwners"
+  }
+  
   depends_on = [google_project_service.bigquery]
 }
 
@@ -113,11 +130,8 @@ resource "google_project_iam_member" "watch_events_firestore" {
   member  = "serviceAccount:${google_service_account.watch_events.email}"
 }
 
-resource "google_bigquery_dataset_iam_member" "watch_events_bq" {
-  dataset_id = google_bigquery_dataset.shift_data.dataset_id
-  role       = "roles/bigquery.dataEditor"
-  member     = "serviceAccount:${google_service_account.watch_events.email}"
-}
+# BigQuery dataset access is managed via access blocks in google_bigquery_dataset resource
+# This gives Terraform full control and avoids deleted service account issues
 
 resource "google_pubsub_topic_iam_member" "watch_events_pubsub" {
   topic  = google_pubsub_topic.watch_events.name
@@ -125,16 +139,11 @@ resource "google_pubsub_topic_iam_member" "watch_events_pubsub" {
   member = "serviceAccount:${google_service_account.watch_events.email}"
 }
 
-# Grant state_estimator Service Account permissions
-resource "google_bigquery_dataset_iam_member" "state_estimator_bq_data_editor" {
-  dataset_id = google_bigquery_dataset.shift_data.dataset_id
-  role       = "roles/bigquery.dataEditor"
-  member     = "serviceAccount:${google_service_account.state_estimator.email}"
-}
-
 resource "google_project_iam_member" "state_estimator_bq_job_user" {
   project = var.project_id
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.state_estimator.email}"
 }
+
+# Cloud Function IAM is handled automatically by gcloud functions deploy
 

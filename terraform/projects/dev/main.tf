@@ -190,50 +190,7 @@ resource "google_service_account" "state_estimator" {
   project      = var.project_id
 }
 
-# Cloud Run service for state_estimator pipeline
-resource "google_cloud_run_service" "state_estimator" {
-  name     = "state-estimator"
-  location = var.region
-  project  = var.project_id
-
-  template {
-    spec {
-      service_account_name = google_service_account.state_estimator.email
-      
-      containers {
-        image = var.state_estimator_image
-        
-        env {
-          name  = "GCP_PROJECT_ID"
-          value = var.project_id
-        }
-        
-        ports {
-          container_port = 8080
-        }
-        
-        resources {
-          limits = {
-            cpu    = "1000m"
-            memory = "512Mi"
-          }
-        }
-      }
-    }
-  }
-
-  traffic {
-    percent         = 100
-    latest_revision = true
-  }
-
-  depends_on = [
-    google_project_service.cloud_run
-  ]
-}
-
-# state_estimator uses least privilege access
-# No explicit IAM bindings = authenticated project members (owners/editors) can access
-# No public access (allUsers) = only authenticated project members
+# Cloud Function is deployed via gcloud functions deploy in deploy.sh
+# Terraform only manages infrastructure: service accounts, topics, IAM, etc.
 
 
