@@ -57,6 +57,7 @@ done
 TERRAFORM_DIR="$PROJECT_ROOT/terraform/projects/dev"
 WATCH_EVENTS_DIR="$PROJECT_ROOT/pipeline/watch_events"
 STATE_ESTIMATOR_DIR="$PROJECT_ROOT/pipeline/state_estimator"
+INTERVENTION_SELECTOR_DIR="$PROJECT_ROOT/pipeline/intervention_selector"
 
 # -------------------------------------------------------------------------------
 # Pre-Terraform Actions
@@ -103,8 +104,9 @@ else
     -auto-approve)
 fi
 
-# Get service account email from Terraform output
+# Get service account emails from Terraform output
 STATE_ESTIMATOR_SA=$(cd "$TERRAFORM_DIR" && terraform output -raw state_estimator_service_account_email 2>/dev/null || echo "")
+INTERVENTION_SELECTOR_SA=$(cd "$TERRAFORM_DIR" && terraform output -raw intervention_selector_service_account_email 2>/dev/null || echo "")
 
 # -------------------------------------------------------------------------------
 # Post-Terraform Actions
@@ -147,6 +149,50 @@ else
   echo ""
   echo "⚡ State Estimator Cloud Function deployed"
   echo "   (Triggered automatically by Pub/Sub messages from watch_events)"
+  
+  # Deploy intervention_selector Cloud Functions
+  echo ""
+  echo "⚡ Deploying intervention_selector Cloud Functions..."
+  
+  # Deploy Pub/Sub-triggered function
+  echo "   Deploying Pub/Sub-triggered function..."
+  gcloud functions deploy intervention-selector \
+    --gen2 \
+    --runtime=python311 \
+    --region="$REGION" \
+    --source="$INTERVENTION_SELECTOR_DIR" \
+    --entry-point=intervention_selector \
+    --trigger-topic=state_estimates \
+    --service-account="${INTERVENTION_SELECTOR_SA}" \
+    --set-env-vars="GCP_PROJECT_ID=$PROJECT,BQ_DATASET_ID=shift_data" \
+    --memory=512Mi \
+    --timeout=540s \
+    --max-instances=10 \
+    --min-instances=0 \
+    --project="$PROJECT"
+  
+  # Deploy HTTP-triggered function
+  echo "   Deploying HTTP-triggered function..."
+  gcloud functions deploy intervention-selector-http \
+    --gen2 \
+    --runtime=python311 \
+    --region="$REGION" \
+    --source="$INTERVENTION_SELECTOR_DIR" \
+    --entry-point=get_intervention \
+    --trigger-http \
+    --allow-unauthenticated \
+    --service-account="${INTERVENTION_SELECTOR_SA}" \
+    --set-env-vars="GCP_PROJECT_ID=$PROJECT,BQ_DATASET_ID=shift_data" \
+    --memory=512Mi \
+    --timeout=60s \
+    --max-instances=10 \
+    --min-instances=0 \
+    --project="$PROJECT"
+  
+  echo ""
+  echo "⚡ Intervention Selector Cloud Functions deployed"
+  echo "   (Pub/Sub: Triggered by state_estimates topic)"
+  echo "   (HTTP: GET /interventions/{id} endpoint)"
   
   # Validate pipeline if requested
   if [ "$VALIDATE_PIPELINE" = "yes" ]; then

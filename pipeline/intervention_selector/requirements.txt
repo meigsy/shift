@@ -1,6 +1,6 @@
 functions-framework>=3.5.0
 cloudevents>=1.10.0
 google-cloud-bigquery>=3.11.0
-google-cloud-pubsub>=2.18.0
+PyAPNs2>=0.7.0
 
 

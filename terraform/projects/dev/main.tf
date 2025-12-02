@@ -190,6 +190,13 @@ resource "google_service_account" "state_estimator" {
   project      = var.project_id
 }
 
+# Service account for intervention_selector pipeline
+resource "google_service_account" "intervention_selector" {
+  account_id   = "intervention-selector-sa"
+  display_name = "SHIFT Intervention Selector Pipeline Service Account"
+  project      = var.project_id
+}
+
 # Cloud Function is deployed via gcloud functions deploy in deploy.sh
 # Terraform only manages infrastructure: service accounts, topics, IAM, etc.
 

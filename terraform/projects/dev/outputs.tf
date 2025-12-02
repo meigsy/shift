@@ -23,6 +23,11 @@ output "state_estimator_service_account_email" {
   value       = google_service_account.state_estimator.email
 }
 
+output "intervention_selector_service_account_email" {
+  description = "Email of the intervention_selector service account"
+  value       = google_service_account.intervention_selector.email
+}
+
 
 
 

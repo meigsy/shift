@@ -1,0 +1,19 @@
+[project]
+name = "intervention-selector"
+version = "0.1.0"
+description = "SHIFT Intervention Selector Pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "functions-framework>=3.5.0",
+    "cloudevents>=1.10.0",
+    "google-cloud-bigquery>=3.11.0",
+    "PyAPNs2>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.12.0",
+]
+
+
