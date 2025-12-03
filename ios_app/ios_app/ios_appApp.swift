@@ -17,7 +17,7 @@ struct ios_appApp: App {
     // Set useMockAuth: true to test without Apple Developer account
     // Set useMockAuth: false for production (requires Apple Developer account)
     @StateObject private var authViewModel = AuthViewModel(
-        backendBaseURL: "https://shift-backend-meqmyk4w5q-uc.a.run.app",  // Deployed Cloud Run URL
+        backendBaseURL: "https://watch-events-meqmyk4w5q-uc.a.run.app",  // Deployed Cloud Run URL
         useMockAuth: true  // Set to false when ready for production
     )
     @StateObject private var syncServiceContainer = SyncServiceContainer()

@@ -167,7 +167,11 @@ def intervention_selector(cloud_event: CloudEvent) -> None:
 
 @functions_framework.http
 def get_intervention(request) -> tuple[Dict[str, Any], int]:
-    """HTTP endpoint to get intervention instance details.
+    """HTTP endpoint to get intervention instance details or list interventions.
+
+    Supports two patterns:
+    - GET /interventions/{id} - Get single intervention by ID
+    - GET /interventions?user_id={user_id}&status={status} - List interventions for user
 
     Args:
         request: Flask request object
@@ -176,10 +180,25 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
         Tuple of (response dict, status code)
     """
     try:
-        # Extract intervention_instance_id from URL path
-        # Expected path: /interventions/{intervention_instance_id}
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            return {"error": "GCP_PROJECT_ID not configured"}, 500
+
+        dataset_id = os.getenv("BQ_DATASET_ID", "shift_data")
+        bq_client = BigQueryClient(project_id=project_id, dataset_id=dataset_id)
+
+        # Check for query parameters (list endpoint)
+        user_id = request.args.get("user_id")
+        status = request.args.get("status", "created")
+
+        if user_id:
+            # List interventions for user
+            interventions = bq_client.get_interventions_for_user(user_id=user_id, status=status)
+            return {"interventions": interventions}, 200
+
+        # Otherwise, treat as single intervention lookup by ID
         path = request.path.rstrip("/")  # Remove trailing slash
-        
+
         # Handle both /interventions/{id} and /{id} patterns
         if path.startswith("/interventions/"):
             intervention_instance_id = path.split("/interventions/", 1)[1].split("?")[0].split("/")[0]
@@ -187,17 +206,10 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
             # Allow root path for simpler routing
             intervention_instance_id = path.lstrip("/").split("?")[0].split("/")[0]
         else:
-            return {"error": "Invalid path. Expected /interventions/{id}"}, 400
+            return {"error": "Invalid path. Expected /interventions/{id} or ?user_id={user_id}"}, 400
 
         if not intervention_instance_id:
             return {"error": "Missing intervention_instance_id"}, 400
-
-        project_id = os.getenv("GCP_PROJECT_ID")
-        if not project_id:
-            return {"error": "GCP_PROJECT_ID not configured"}, 500
-
-        dataset_id = os.getenv("BQ_DATASET_ID", "shift_data")
-        bq_client = BigQueryClient(project_id=project_id, dataset_id=dataset_id)
 
         # Get intervention instance
         instance = bq_client.get_intervention_instance(intervention_instance_id)

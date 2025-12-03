@@ -257,4 +257,77 @@ class BigQueryClient:
             logger.error(f"Error querying device token: {e}", exc_info=True)
             raise
 
+    def get_interventions_for_user(
+        self, user_id: str, status: str = "created"
+    ) -> list[dict]:
+        """Get interventions for a user filtered by status.
+
+        Args:
+            user_id: User ID
+            status: Status filter (default: "created" for pending interventions)
+
+        Returns:
+            List of intervention instance dicts with catalog details merged
+        """
+        from src.catalog import get_intervention
+
+        query = f"""
+            SELECT
+                intervention_instance_id,
+                user_id,
+                metric,
+                level,
+                surface,
+                intervention_key,
+                created_at,
+                scheduled_at,
+                sent_at,
+                status
+            FROM `{self.project_id}.{self.dataset_id}.intervention_instances`
+            WHERE user_id = @user_id
+            AND status = @status
+            ORDER BY created_at DESC
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+                bigquery.ScalarQueryParameter("status", "STRING", status),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            interventions = []
+            for row in results:
+                # Get intervention details from catalog
+                intervention = get_intervention(row.intervention_key)
+                if not intervention:
+                    logger.warning(f"Intervention not found in catalog: {row.intervention_key}")
+                    continue
+
+                # Merge instance data with catalog details
+                intervention_dict = {
+                    "intervention_instance_id": row.intervention_instance_id,
+                    "user_id": row.user_id,
+                    "metric": row.metric,
+                    "level": row.level,
+                    "surface": row.surface,
+                    "intervention_key": row.intervention_key,
+                    "title": intervention["title"],
+                    "body": intervention["body"],
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "scheduled_at": row.scheduled_at.isoformat() if row.scheduled_at else None,
+                    "sent_at": row.sent_at.isoformat() if row.sent_at else None,
+                    "status": row.status,
+                }
+                interventions.append(intervention_dict)
+
+            return interventions
+        except Exception as e:
+            logger.error(f"Error querying interventions for user: {e}", exc_info=True)
+            raise
+
 

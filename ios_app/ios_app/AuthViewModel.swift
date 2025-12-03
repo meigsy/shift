@@ -184,13 +184,18 @@ class AuthViewModel: NSObject, ObservableObject {
     }
     
     func fetchUserInfo() async {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        print("🔍 [\(timestamp)] fetchUserInfo() called - token exists: \(idToken != nil)")
+        
         guard let token = idToken else {
             errorMessage = "No authentication token"
+            print("❌ [\(timestamp)] fetchUserInfo() - No token available")
             return
         }
         
         guard let url = URL(string: "\(backendBaseURL)/me") else {
             errorMessage = "Invalid URL"
+            print("❌ [\(timestamp)] fetchUserInfo() - Invalid URL: \(backendBaseURL)/me")
             return
         }
         
@@ -201,11 +206,17 @@ class AuthViewModel: NSObject, ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                let errorTimestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+                print("❌ [\(errorTimestamp)] fetchUserInfo() - Invalid response type")
                 errorMessage = "Invalid response"
                 return
             }
             
+            let httpTimestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            print("🌐 [\(httpTimestamp)] fetchUserInfo() - HTTP \(httpResponse.statusCode) from \(backendBaseURL)/me")
+            
             if httpResponse.statusCode == 401 {
+                print("❌ [\(httpTimestamp)] fetchUserInfo() - Token expired (401), signing out")
                 // Token expired, sign out
                 signOut()
                 errorMessage = "Session expired. Please sign in again."
@@ -214,18 +225,24 @@ class AuthViewModel: NSObject, ObservableObject {
             
             guard (200...299).contains(httpResponse.statusCode) else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+                print("❌ [\(httpTimestamp)] fetchUserInfo() - HTTP \(httpResponse.statusCode): \(errorBody)")
                 errorMessage = "Failed to fetch user info: \(errorBody)"
                 return
             }
             
             let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            // Note: User struct handles date parsing internally with custom logic for fractional seconds
             
-            user = try decoder.decode(User.self, from: data)
+            let decodedUser = try decoder.decode(User.self, from: data)
+            let successTimestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            print("✅ [\(successTimestamp)] fetchUserInfo() - User fetched: userId=\(decodedUser.userId)")
+            user = decodedUser
             isAuthenticated = true
             errorMessage = nil
             
         } catch {
+            let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            print("❌ [\(timestamp)] fetchUserInfo() - Exception: \(error.localizedDescription)")
             errorMessage = "Failed to fetch user info: \(error.localizedDescription)"
         }
     }
@@ -316,7 +333,7 @@ struct AuthResponse: Codable {
     }
 }
 
-struct User: Codable, Identifiable {
+struct User: Codable, Identifiable, Equatable {
     let id: String
     let userId: String
     let email: String?
@@ -336,7 +353,27 @@ struct User: Codable, Identifiable {
         id = userId
         email = try container.decodeIfPresent(String.self, forKey: .email)
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
-        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        
+        // Decode optional ISO8601 dates - try multiple formats (handles fractional seconds)
+        func parseDate(from string: String?) -> Date? {
+            guard let string = string, !string.isEmpty else { return nil }
+            
+            // Try with fractional seconds first
+            let formatterWithFractional = ISO8601DateFormatter()
+            formatterWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatterWithFractional.date(from: string) {
+                return date
+            }
+            
+            // Try without fractional seconds
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: string)
+        }
+        
+        // Decode created_at as string first, then parse
+        let createdAtString = try? container.decodeIfPresent(String.self, forKey: .createdAt)
+        createdAt = parseDate(from: createdAtString)
     }
 }
 
