@@ -5,7 +5,7 @@
 
 PROJECT="shift-dev-478422"
 DATASET="shift_data"
-TEST_USER_ID="test-user-$(date +%s)"
+TEST_USER_ID="mock-user-default"
 
 echo "🧪 Testing SHIFT Pipeline End-to-End"
 echo ""

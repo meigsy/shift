@@ -384,3 +384,4 @@ Then validate in BigQuery console using the queries above.
 
 
 
+
