@@ -79,8 +79,8 @@ struct InterventionBanner: View {
                 isVisible = true
             }
             
-            // Auto-dismiss after 8 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            // Auto-dismiss after 30 seconds (increased for easier testing)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
                 withAnimation(.spring()) {
                     isVisible = false
                 }
