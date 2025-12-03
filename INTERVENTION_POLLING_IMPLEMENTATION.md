@@ -32,7 +32,7 @@
 
 3. **InterventionBanner.swift** - UI component
    - Banner/toast style notification
-   - Auto-dismisses after 8 seconds
+   - Auto-dismisses after 30 seconds (increased from 8s for easier testing)
    - Swipe-up to dismiss
    - Color-coded by level (high=orange, medium=blue, low=green)
 
@@ -110,7 +110,7 @@ curl "https://us-central1-shift-dev-478422.cloudfunctions.net/intervention-selec
 - [ ] Backend list endpoint returns interventions for user with pending interventions
 - [ ] iOS app polls successfully when authenticated
 - [ ] iOS app shows banner for "notification" surface
-- [ ] Banner auto-dismisses after 8 seconds
+- [x] Banner auto-dismisses after 30 seconds
 - [ ] Banner can be swiped to dismiss
 - [ ] Polling stops when app backgrounds
 - [ ] Polling resumes when app foregrounds

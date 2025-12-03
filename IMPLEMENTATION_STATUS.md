@@ -1,6 +1,30 @@
 # SHIFT Implementation Status
 
-**Last Updated**: 2025-12-02
+**Last Updated**: 2025-12-03
+
+## 📝 Implementation Decisions & Context
+
+### Intervention Delivery: Polling vs Push
+
+**What We Built**: Polling-based intervention delivery (iOS app polls every 60 seconds)
+
+**Why**: 
+- Easier testing without Apple Developer account setup
+- Works immediately without APNs configuration
+- Explicit decision made during implementation to use polling for Phase 1
+
+**What Was Originally Planned**: 
+- APNs push notifications for real-time delivery
+- iOS receives push → calls HTTP endpoint
+
+**Current State**:
+- ✅ Polling fully implemented and working end-to-end
+- ✅ APNs code exists but is optional (not required for Phase 1)
+- 🔮 Push notifications can be added later without breaking polling
+
+**See Also**: `INTERVENTION_POLLING_IMPLEMENTATION.md` for iOS polling implementation details
+
+---
 
 ## 🎯 Core Pipeline: Data → State → Intervention
 
@@ -60,7 +84,7 @@
 
 ---
 
-### ⚠️ **Pipeline 3: Intervention Selector** (DEPLOYED, DEBUGGING)
+### ✅ **Pipeline 3: Intervention Selector** (DEPLOYED, WORKING)
 
 **Service**: Cloud Functions (2nd gen)
 - `intervention-selector` (Pub/Sub trigger)
@@ -76,15 +100,15 @@
   - Creates intervention instance in `intervention_instances` BigQuery table
   - Attempts to send APNs push notification (optional - logs if not configured)
   - Updates intervention instance status (`created`/`sent`/`failed`)
-- **HTTP Function**: Provides `GET /interventions/{id}` endpoint
-  - iOS app calls this after receiving push notification
-  - Returns intervention details (title, body, metadata)
+- **HTTP Function**: Provides two endpoints:
+  - `GET /interventions/{id}` - Single intervention lookup (for push notification flow)
+  - `GET /interventions?user_id={user_id}&status={status}` - List interventions (for polling)
 
-**Status**: ⚠️ **DEPLOYED BUT NOT CREATING INTERVENTIONS YET**
+**Status**: ✅ **DEPLOYED AND WORKING**
 - Cloud Functions deployed successfully
-- Receiving Pub/Sub messages (confirmed in logs)
-- **Issue**: Message payload parsing issue (extracting `user_id`/`timestamp` from CloudEvent envelope)
-- **Fix in progress**: Updated code to properly decode Pub/Sub CloudEvent structure
+- Pub/Sub message parsing fixed (properly decodes CloudEvent envelope)
+- Creating intervention instances in BigQuery
+- HTTP endpoints responding correctly
 
 **Infrastructure**:
 - BigQuery tables:
@@ -99,7 +123,9 @@
 - Surfaces: **notification only** (in_app skipped)
 - Bucketing thresholds: Hard-coded constants
 - Catalog: Hard-coded in `src/catalog.py`
-- APNs: Optional (logs warning if not configured)
+- **Delivery Method**: **Polling-based** (iOS app polls every 60s)
+  - APNs push notifications: Optional (code exists, not required for Phase 1)
+  - Rationale: Easier testing without Apple Developer account, works immediately
 
 ---
 
@@ -112,10 +138,18 @@
 - Authentication: Sign in with Apple integration (Identity Platform backend)
 - API client: Posts HealthKit data to `/watch_events` endpoint
 - Sync coordinator: Handles data fetching and posting logic
+- **Intervention delivery**: Polling-based system
+  - `InterventionPoller`: Polls backend every 60 seconds when app is active
+  - `InterventionService`: Fetches pending interventions via `GET /interventions?user_id=X&status=created`
+  - `InterventionRouter`: Routes interventions by `surface` field (notification → banner)
+  - `InterventionBanner`: SwiftUI banner component with auto-dismiss (30s)
+  - Lifecycle management: Starts/stops polling on foreground/background
 
-**Status**: ✅ **BASIC FUNCTIONALITY WORKING**
+**Status**: ✅ **FULLY FUNCTIONAL**
 - Can authenticate and post data to backend
-- Push notification handling: **NOT YET IMPLEMENTED**
+- Intervention polling working end-to-end
+- Banners display correctly for "notification" surface
+- Push notification handling: **Optional for future** (polling is Phase 1 primary method)
 
 ---
 
@@ -191,10 +225,16 @@ Pub/Sub: state_estimates topic
   ↓ (trigger)
 intervention-selector Cloud Function
   ↓ (select & create)
-BigQuery: intervention_instances ❌ (NOT WORKING YET)
-  ↓ (send push)
-APNs → iOS App (NOT YET IMPLEMENTED)
+BigQuery: intervention_instances ✅ (status: "created")
+  ↓
+iOS App polls every 60s → GET /interventions?user_id=X&status=created
+  ↓
+InterventionRouter → checks surface → shows banner for "notification"
+  ↓
+User sees intervention banner in app ✅
 ```
+
+**Note**: APNs push notifications are optional. Phase 1 uses polling for easier testing without Apple Developer account setup.
 
 ---
 
@@ -225,10 +265,11 @@ APNs → iOS App (NOT YET IMPLEMENTED)
 - `interaction_preferences`: User preference learning pipeline
 
 ### Features
-- **APNs Push Notifications**: Code exists but not configured/tested
-- **iOS Push Notification Handling**: App doesn't handle push yet
+- **APNs Push Notifications**: Code exists, optional for Phase 1 (polling is primary method)
+- **iOS Push Notification Handling**: Not implemented (polling used instead for Phase 1)
 - **Intervention Catalog**: Currently hard-coded, future: Google Sheets sync
 - **Learning Loop**: No feedback mechanism yet (completions, dismissals)
+- **"in_app" Surface**: Stub exists, not yet implemented (only "notification" banners work)
 
 ---
 

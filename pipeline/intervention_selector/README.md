@@ -98,20 +98,60 @@ Stores device tokens for push notifications:
 
 ## Flow
 
+**Phase 1 (Current - Polling-based)**:
 1. `state_estimator` creates state estimate → publishes to `state_estimates` Pub/Sub topic
 2. `intervention-selector` (Pub/Sub) receives message
 3. Queries latest state estimate for user from BigQuery
 4. Buckets stress score → Selects intervention
-5. Creates intervention instance in BigQuery
-6. Gets device token (from table or env var fallback)
-7. Sends push notification via APNs
-8. Updates intervention instance status ("sent" or "failed")
+5. Creates intervention instance in BigQuery (status: "created")
+6. (Optional) Attempts APNs push notification (if configured)
+7. iOS app polls `GET /interventions?user_id=X&status=created` every 60 seconds
+8. iOS app displays intervention banner when found
 
-## HTTP Endpoint
+**Future (Push-based)**:
+- Steps 1-5 same as above
+- APNs push notification sent immediately
+- iOS app receives push → calls `GET /interventions/{id}` → displays intervention
 
-`GET /interventions/{intervention_instance_id}`
+## HTTP Endpoints
 
-Returns intervention instance details including title and body from catalog.
+### `GET /interventions/{intervention_instance_id}`
+
+Returns single intervention instance details including title and body from catalog.
+
+**Use case**: Called by iOS app after receiving push notification (future).
+
+### `GET /interventions?user_id={user_id}&status={status}`
+
+Returns array of intervention instances for a user, filtered by status.
+
+**Query parameters**:
+- `user_id` (required): User ID to fetch interventions for
+- `status` (optional, default: "created"): Filter by status ("created", "sent", "failed")
+
+**Use case**: Called by iOS app polling service every 60 seconds (Phase 1 primary method).
+
+**Example response**:
+```json
+{
+  "interventions": [
+    {
+      "intervention_instance_id": "uuid",
+      "user_id": "user123",
+      "metric": "stress",
+      "level": "high",
+      "surface": "notification",
+      "intervention_key": "stress_high_notification",
+      "title": "Take a Short Reset",
+      "body": "You seem overloaded. Take a 5-minute break.",
+      "created_at": "2025-01-01T12:00:00Z",
+      "scheduled_at": "2025-01-01T12:00:00Z",
+      "sent_at": null,
+      "status": "created"
+    }
+  ]
+}
+```
 
 Example response:
 ```json
@@ -138,21 +178,36 @@ Example response:
 - If device token missing: Status remains "created", logged as info
 - If stress is NULL: No intervention selected
 
+## Phase 1 Delivery: Polling vs Push
+
+**Current Implementation (Phase 1)**: Polling-based delivery
+- iOS app polls `GET /interventions?user_id=X&status=created` every 60 seconds
+- No Apple Developer account required
+- Works immediately without APNs setup
+- Easier to test and debug
+- See `INTERVENTION_POLLING_IMPLEMENTATION.md` for iOS implementation details
+
+**Future Enhancement**: Push-based delivery
+- APNs push notifications sent immediately when intervention created
+- iOS app receives push → calls `GET /interventions/{id}` → displays intervention
+- Requires Apple Developer account and APNs configuration
+- Code exists but not required for Phase 1
+
 ## Testing Without Apple Developer Account
 
 For Phase 1 testing without an Apple Developer account:
 
 1. **Skip APNs entirely** - Don't set APNs env vars
-2. **Intervention instances are still created** in BigQuery
-3. **Use HTTP endpoint** - iOS app can poll `GET /interventions/{id}`
+2. **Intervention instances are still created** in BigQuery (status: "created")
+3. **Use polling endpoint** - iOS app polls `GET /interventions?user_id=X&status=created`
 4. **Check logs** - Cloud Function logs will show intervention creation
 
 Example flow:
 ```
 1. State estimate created → Pub/Sub message
 2. Intervention selector creates instance in BigQuery
-3. Status: "created" (push not sent)
-4. iOS app polls HTTP endpoint periodically
-5. iOS app displays intervention when found
+3. Status: "created" (push not sent, APNs optional)
+4. iOS app polls list endpoint every 60 seconds
+5. iOS app displays intervention banner when found
 ```
 
