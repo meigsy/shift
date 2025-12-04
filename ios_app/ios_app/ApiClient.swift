@@ -76,6 +76,17 @@ class ApiClient {
         return data
     }
     
+    // MARK: - PATCH Request
+    
+    func patch<T: Encodable>(path: String, body: T) async throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        
+        let bodyData = try encoder.encode(body)
+        let (data, _) = try await authenticatedRequest(path: path, method: "PATCH", body: bodyData)
+        return data
+    }
+    
     // MARK: - GET Request
     
     func get(path: String) async throws -> Data {
@@ -105,6 +116,8 @@ enum ApiError: LocalizedError {
         }
     }
 }
+
+
 
 
 

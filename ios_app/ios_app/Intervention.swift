@@ -20,6 +20,7 @@ struct Intervention: Decodable, Identifiable, Equatable {
     let scheduledAt: Date?
     let sentAt: Date?
     let status: String
+    let traceId: String?
     
     var id: String { interventionInstanceId }
     
@@ -36,6 +37,7 @@ struct Intervention: Decodable, Identifiable, Equatable {
         case scheduledAt = "scheduled_at"
         case sentAt = "sent_at"
         case status
+        case traceId = "trace_id"
     }
     
     init(from decoder: Decoder) throws {
@@ -49,6 +51,7 @@ struct Intervention: Decodable, Identifiable, Equatable {
         title = try container.decode(String.self, forKey: .title)
         body = try container.decode(String.self, forKey: .body)
         status = try container.decode(String.self, forKey: .status)
+        traceId = try container.decodeIfPresent(String.self, forKey: .traceId)
         
         // Decode optional ISO8601 dates - try multiple formats
         func parseDate(from string: String?) -> Date? {

@@ -4,6 +4,7 @@
 INSERT INTO shift_data.state_estimates (
     user_id,
     timestamp,
+    trace_id,
     recovery,
     readiness,
     stress,
@@ -13,6 +14,9 @@ WITH cte_unprocessed AS (
     SELECT
         user_id,
         timestamp,
+        -- CRITICAL: trace_id is REQUIRED for 100% traceability
+        -- Generate UUID if missing (should never happen, but fail-safe)
+        COALESCE(trace_id, GENERATE_UUID()) AS trace_id,
         hrv_value,
         resting_hr_value,
         sleep_minutes,
@@ -26,6 +30,7 @@ cte_normalized_metrics AS (
     SELECT
         user_id,
         timestamp,
+        trace_id,
         -- Normalize HRV (typical range 20-60ms, higher is better for recovery)
         -- Scale to 0-1: (hrv - 20) / (60 - 20)
         LEAST(1.0, GREATEST(0.0, (hrv_value - 20.0) / 40.0)) AS normalized_hrv,
@@ -46,6 +51,7 @@ cte_state_scores AS (
     SELECT
         user_id,
         timestamp,
+        trace_id,
         -- Recovery: combination of HRV, resting HR, and sleep
         -- Higher HRV, lower resting HR, more sleep = higher recovery
         (
@@ -81,6 +87,7 @@ cte_state_scores AS (
 SELECT
     user_id,
     timestamp,
+    trace_id,
     recovery,
     readiness,
     stress,

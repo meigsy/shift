@@ -11,12 +11,14 @@ from schemas import (
     AuthResponse,
     User,
     HealthDataBatch,
-    WatchEventsResponse
+    WatchEventsResponse,
+    AppInteractionRequest
 )
 from auth_apple import authenticate_with_apple
 from auth_identity_platform import verify_identity_platform_token, get_user_from_token
 from users_repo import users_repo
 from services.ingestion import process_watch_events
+from uuid import uuid4
 
 app = FastAPI(
     title="SHIFT Backend API",
@@ -195,6 +197,8 @@ async def watch_events(
     Delegates to ingestion service for deduplication, storage, and triggering.
     """
     try:
+        # Debug: Log trace_id status
+        print(f"📥 Received batch from user {current_user.user_id}, trace_id: {batch.trace_id}")
         result = process_watch_events(batch, current_user.user_id)
         
         return WatchEventsResponse(
@@ -205,6 +209,78 @@ async def watch_events(
     except Exception as e:
         print(f"❌ Ingestion error: {e}")
         raise HTTPException(status_code=500, detail="Failed to process health data")
+
+
+@app.post("/app_interactions")
+async def app_interactions(
+        interaction: AppInteractionRequest,
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Receive app interaction events from iOS app.
+    
+    Tracks user interactions with interventions (shown, tapped, dismissed).
+    Stores events in BigQuery for traceability analysis.
+    """
+    try:
+        # Verify user_id matches authenticated user
+        if interaction.user_id != current_user.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="User ID in request does not match authenticated user"
+            )
+        
+        # Import BigQuery client
+        from google.cloud import bigquery
+        import os
+        
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            raise HTTPException(
+                status_code=500,
+                detail="GCP_PROJECT_ID not configured"
+            )
+        
+        bq_client = bigquery.Client(project=project_id)
+        table_id = f"{project_id}.shift_data.app_interactions"
+        
+        # Generate interaction_id
+        interaction_id = str(uuid4())
+        
+        # Prepare row for insertion
+        rows_to_insert = [
+            {
+                "interaction_id": interaction_id,
+                "trace_id": interaction.trace_id,
+                "user_id": interaction.user_id,
+                "intervention_instance_id": interaction.intervention_instance_id,
+                "event_type": interaction.event_type,
+                "timestamp": interaction.timestamp.isoformat()
+            }
+        ]
+        
+        # Insert into BigQuery
+        errors = bq_client.insert_rows_json(table_id, rows_to_insert)
+        if errors:
+            print(f"❌ BigQuery insert errors: {errors}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to store interaction event: {errors}"
+            )
+        
+        print(f"✅ Stored interaction event: {interaction_id} for trace_id: {interaction.trace_id}")
+        
+        return {
+            "status": "success",
+            "message": "Interaction event recorded",
+            "interaction_id": interaction_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Interaction ingestion error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process interaction event: {str(e)}")
 
 
 if __name__ == "__main__":

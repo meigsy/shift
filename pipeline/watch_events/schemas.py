@@ -78,6 +78,10 @@ class HealthDataBatch(BaseModel):
     sleep: List[SleepSample] = Field(default_factory=list)
     workouts: List[WorkoutSample] = Field(default_factory=list)
     fetchedAt: datetime
+    trace_id: Optional[str] = Field(None, alias="traceId")  # Accept both trace_id and traceId
+    
+    class Config:
+        populate_by_name = True  # Allow both field name (trace_id) and alias (traceId)
 
 
 class WatchEventsResponse(BaseModel):
@@ -85,6 +89,15 @@ class WatchEventsResponse(BaseModel):
     message: str
     samples_received: int
     user_id: str
+
+
+class AppInteractionRequest(BaseModel):
+    """Request body for /app_interactions endpoint."""
+    trace_id: str = Field(..., description="Trace ID linking to the intervention lifecycle")
+    user_id: str = Field(..., description="User ID")
+    intervention_instance_id: Optional[str] = Field(None, description="Intervention instance ID")
+    event_type: str = Field(..., description="Event type: 'shown', 'tapped', or 'dismissed'")
+    timestamp: datetime = Field(..., description="Event timestamp")
 
 
 

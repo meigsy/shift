@@ -9,6 +9,8 @@ import SwiftUI
 
 struct InterventionBanner: View {
     let intervention: Intervention
+    let interactionService: InteractionService?
+    let userId: String
     let onDismiss: () -> Void
     
     @State private var isVisible = false
@@ -35,7 +37,19 @@ struct InterventionBanner: View {
                 
                 Spacer()
                 
-                Button(action: onDismiss) {
+                Button(action: {
+                    // Record "tapped" interaction
+                    if let interactionService = interactionService {
+                        Task {
+                            try? await interactionService.recordInteraction(
+                                intervention: intervention,
+                                eventType: "tapped",
+                                userId: userId
+                            )
+                        }
+                    }
+                    onDismiss()
+                }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                         .font(.title3)
@@ -57,6 +71,16 @@ struct InterventionBanner: View {
                     .onEnded { value in
                         if value.translation.height < -50 {
                             // Dismiss if dragged up enough
+                            // Record "dismissed" interaction
+                            if let interactionService = interactionService {
+                                Task {
+                                    try? await interactionService.recordInteraction(
+                                        intervention: intervention,
+                                        eventType: "dismissed",
+                                        userId: userId
+                                    )
+                                }
+                            }
                             withAnimation(.spring()) {
                                 isVisible = false
                             }
@@ -81,6 +105,16 @@ struct InterventionBanner: View {
             
             // Auto-dismiss after 30 seconds (increased for easier testing)
             DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                // Record "dismissed" interaction for auto-dismiss
+                if let interactionService = interactionService {
+                    Task {
+                        try? await interactionService.recordInteraction(
+                            intervention: intervention,
+                            eventType: "dismissed",
+                            userId: userId
+                        )
+                    }
+                }
                 withAnimation(.spring()) {
                     isVisible = false
                 }

@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
+from uuid import uuid4
 
 # Google Cloud Imports
 from google.cloud import firestore
@@ -76,6 +77,14 @@ def process_watch_events(batch: HealthDataBatch, user_id: str) -> Dict[str, Any]
         len(batch.workouts)
     )
     
+    # CRITICAL: trace_id is REQUIRED for 100% traceability
+    trace_id = batch.trace_id
+    if not trace_id:
+        trace_id = str(uuid4())
+        print(f"❌ CRITICAL: trace_id missing from batch! Generated: {trace_id}")
+    else:
+        print(f"✅ trace_id received from iOS: {trace_id}")
+    
     # Use fetchedAt as part of the unique key
     fetched_at_iso = batch.fetchedAt.isoformat()
     dedup_key = f"user_{user_id}:time_{fetched_at_iso}"
@@ -114,6 +123,7 @@ def process_watch_events(batch: HealthDataBatch, user_id: str) -> Dict[str, Any]
                 {
                     "user_id": user_id,
                     "fetched_at": fetched_at_iso,
+                    "trace_id": trace_id,
                     "payload": payload,
                     "ingested_at": datetime.now(timezone.utc).isoformat()
                 }
@@ -124,7 +134,7 @@ def process_watch_events(batch: HealthDataBatch, user_id: str) -> Dict[str, Any]
                 print(f"❌ BigQuery insert errors: {errors}")
                 # We log but don't crash, as data is also going to Pub/Sub trigger
             else:
-                print(f"✅ Written to BigQuery: {table_id}")
+                print(f"✅ Written to BigQuery: {table_id} with trace_id: {trace_id}")
                 
         except Exception as e:
             print(f"❌ BigQuery write failed: {e}")
@@ -136,6 +146,7 @@ def process_watch_events(batch: HealthDataBatch, user_id: str) -> Dict[str, Any]
             trigger_data = {
                 "user_id": user_id,
                 "fetched_at": fetched_at_iso,
+                "trace_id": trace_id,
                 "total_samples": total_samples
             }
             data_str = json.dumps(trigger_data)

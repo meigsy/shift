@@ -38,6 +38,7 @@ class BigQueryClient:
             SELECT
                 user_id,
                 timestamp,
+                trace_id,
                 recovery,
                 readiness,
                 stress,
@@ -62,6 +63,7 @@ class BigQueryClient:
                 return {
                     "user_id": row.user_id,
                     "timestamp": row.timestamp,
+                    "trace_id": row.trace_id,
                     "recovery": row.recovery,
                     "readiness": row.readiness,
                     "stress": row.stress,
@@ -80,6 +82,7 @@ class BigQueryClient:
         level: str,
         surface: str,
         intervention_key: str,
+        trace_id: str,  # REQUIRED - no longer optional
     ) -> str:
         """Create an intervention instance record in BigQuery.
 
@@ -100,6 +103,7 @@ class BigQueryClient:
             {
                 "intervention_instance_id": intervention_instance_id,
                 "user_id": user_id,
+                "trace_id": trace_id,
                 "metric": metric,
                 "level": level,
                 "surface": surface,
@@ -180,6 +184,7 @@ class BigQueryClient:
             SELECT
                 intervention_instance_id,
                 user_id,
+                trace_id,
                 metric,
                 level,
                 surface,
@@ -207,6 +212,7 @@ class BigQueryClient:
                 return {
                     "intervention_instance_id": row.intervention_instance_id,
                     "user_id": row.user_id,
+                    "trace_id": row.trace_id,
                     "metric": row.metric,
                     "level": row.level,
                     "surface": row.surface,
@@ -275,6 +281,7 @@ class BigQueryClient:
             SELECT
                 intervention_instance_id,
                 user_id,
+                trace_id,
                 metric,
                 level,
                 surface,
@@ -309,9 +316,16 @@ class BigQueryClient:
                     continue
 
                 # Merge instance data with catalog details
+                # CRITICAL: trace_id is REQUIRED for 100% traceability
+                trace_id = row.trace_id
+                if not trace_id:
+                    trace_id = str(uuid4())
+                    logger.error(f"⚠️ CRITICAL: Missing trace_id in intervention {row.intervention_instance_id}! Generated: {trace_id}")
+                
                 intervention_dict = {
                     "intervention_instance_id": row.intervention_instance_id,
                     "user_id": row.user_id,
+                    "trace_id": trace_id,  # REQUIRED - always included
                     "metric": row.metric,
                     "level": row.level,
                     "surface": row.surface,

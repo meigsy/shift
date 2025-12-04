@@ -45,6 +45,23 @@ class InterventionService {
             throw error
         }
     }
+    
+    func updateInterventionStatus(_ interventionInstanceId: String, status: String) async throws {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        
+        let path = "/interventions/\(interventionInstanceId)/status"
+        let body = ["status": status]
+        
+        print("🌐 [\(timestamp)] Updating intervention \(interventionInstanceId) status to: \(status)")
+        
+        do {
+            let _ = try await apiClient.patch(path: path, body: body)
+            print("✅ [\(timestamp)] Successfully updated intervention status")
+        } catch {
+            print("❌ [\(timestamp)] Error updating intervention status: \(error.localizedDescription)")
+            throw error
+        }
+    }
 }
 
 

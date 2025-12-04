@@ -22,6 +22,8 @@ struct MainView: View {
     @State private var interventionPoller: InterventionPoller?
     @State private var displayedBanners: [Intervention] = []
     @State private var interventionBaseURL: String = "https://us-central1-shift-dev-478422.cloudfunctions.net/intervention-selector-http"
+    @State private var interactionService: InteractionService?
+    @State private var interventionService: InterventionService?
     
     var body: some View {
         mainContent
@@ -81,7 +83,21 @@ struct MainView: View {
     private var bannerOverlay: some View {
         VStack(spacing: 8) {
             ForEach(displayedBanners) { intervention in
-                InterventionBanner(intervention: intervention) {
+                InterventionBanner(
+                    intervention: intervention,
+                    interactionService: interactionService,
+                    userId: authViewModel.user?.userId ?? ""
+                ) {
+                    // Update status to "dismissed" when banner is dismissed
+                    if let interventionService = interventionService {
+                        Task {
+                            do {
+                                try await interventionService.updateInterventionStatus(intervention.interventionInstanceId, status: "dismissed")
+                            } catch {
+                                print("⚠️ Failed to update intervention status to dismissed: \(error.localizedDescription)")
+                            }
+                        }
+                    }
                     displayedBanners.removeAll { $0.id == intervention.id }
                 }
             }
@@ -270,6 +286,28 @@ struct MainView: View {
         print("🎨 [\(timestamp)] Displaying banner for intervention: \(intervention.title)")
         displayedBanners.append(intervention)
         interventionRouter.newIntervention = nil
+        
+        // Record "shown" interaction
+        if let interactionService = interactionService, let userId = authViewModel.user?.userId {
+            Task {
+                try? await interactionService.recordInteraction(
+                    intervention: intervention,
+                    eventType: "shown",
+                    userId: userId
+                )
+            }
+        }
+        
+        // Update intervention status to "sent" when displayed
+        if let interventionService = interventionService {
+            Task {
+                do {
+                    try await interventionService.updateInterventionStatus(intervention.interventionInstanceId, status: "sent")
+                } catch {
+                    print("⚠️ [\(timestamp)] Failed to update intervention status: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     private func setupInterventionPolling() {
@@ -298,12 +336,21 @@ struct MainView: View {
         )
         apiClient.setToken(authViewModel.idToken)
         
-        // Create intervention service
-        let interventionService = InterventionService(apiClient: apiClient)
+        // Create intervention service (for fetching and updating interventions)
+        let newInterventionService = InterventionService(apiClient: apiClient)
+        self.interventionService = newInterventionService
+        
+        // Create interaction service (for tracking user interactions)
+        let watchEventsApiClient = ApiClient(
+            baseURL: authViewModel.backendBaseURL,
+            idToken: authViewModel.idToken
+        )
+        watchEventsApiClient.setToken(authViewModel.idToken)
+        self.interactionService = InteractionService(apiClient: watchEventsApiClient)
         
         // Create and start poller
         let poller = InterventionPoller(
-            interventionService: interventionService,
+            interventionService: newInterventionService,
             router: interventionRouter,
             userId: userId
         )

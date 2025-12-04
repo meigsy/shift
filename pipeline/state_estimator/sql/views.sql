@@ -5,6 +5,7 @@ WITH cte_watch_events AS (
         user_id,
         fetched_at,
         ingested_at,
+        trace_id,
         payload
     FROM shift_data.watch_events
 ),
@@ -64,6 +65,7 @@ SELECT
     e.user_id,
     e.fetched_at AS timestamp,
     e.ingested_at,
+    e.trace_id,
     COALESCE(hrv.avg_hrv_value, 0.0) AS hrv_value,
     COALESCE(rhr.avg_resting_hr_value, 0.0) AS resting_hr_value,
     COALESCE(sleep.total_sleep_minutes, 0.0) AS sleep_minutes,
@@ -86,6 +88,7 @@ WITH cte_input AS (
     SELECT
         user_id,
         timestamp,
+        trace_id,
         hrv_value,
         resting_hr_value,
         sleep_minutes,
@@ -102,6 +105,7 @@ WITH cte_input AS (
 SELECT
     input.user_id,
     input.timestamp,
+    input.trace_id,
     input.hrv_value,
     input.resting_hr_value,
     input.sleep_minutes,

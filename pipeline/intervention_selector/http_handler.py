@@ -58,9 +58,17 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
             return {"error": "Intervention not found in catalog"}, 500
 
         # Return combined response
+        # CRITICAL: trace_id is REQUIRED for 100% traceability
+        trace_id = instance.get("trace_id")
+        if not trace_id:
+            from uuid import uuid4
+            trace_id = str(uuid4())
+            logger.error(f"⚠️ CRITICAL: Missing trace_id in intervention {instance['intervention_instance_id']}! Generated: {trace_id}")
+        
         response = {
             "intervention_instance_id": instance["intervention_instance_id"],
             "user_id": instance["user_id"],
+            "trace_id": trace_id,  # REQUIRED - always included
             "metric": instance["metric"],
             "level": instance["level"],
             "surface": instance["surface"],

@@ -216,6 +216,9 @@ final class HealthKitManager: ObservableObject {
     
     /// Fetch all health data since a given date (for sync)
     func fetchAllDataSince(_ since: Date) async -> HealthDataBatch {
+        // Generate trace_id for this sync batch
+        let traceId = UUID()
+        
         async let heartRates = fetchQuantitySamples(.heartRate, since: since, unit: .beatsPerMinute)
         async let hrv = fetchQuantitySamples(.heartRateVariabilitySDNN, since: since, unit: .ms)
         async let restingHR = fetchQuantitySamples(.restingHeartRate, since: since, unit: .beatsPerMinute)
@@ -252,7 +255,8 @@ final class HealthKitManager: ObservableObject {
             leanBodyMass: leanMass,
             sleep: sleep,
             workouts: workouts,
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            traceId: traceId
         )
     }
     
@@ -534,6 +538,16 @@ struct HealthDataBatch: Codable {
     let sleep: [SleepSample]
     let workouts: [WorkoutSample]
     let fetchedAt: Date
+    let traceId: UUID
+    
+    enum CodingKeys: String, CodingKey {
+        case heartRate, hrv, restingHeartRate, walkingHeartRateAverage
+        case respiratoryRate, oxygenSaturation, vo2Max, steps
+        case activeEnergy, exerciseTime, standTime, timeInDaylight
+        case bodyMass, bodyFatPercentage, leanBodyMass, sleep, workouts
+        case fetchedAt
+        case traceId = "trace_id"
+    }
     
     var totalSampleCount: Int {
         heartRate.count + hrv.count + restingHeartRate.count + walkingHeartRateAverage.count +

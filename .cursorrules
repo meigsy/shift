@@ -24,6 +24,15 @@ Python version: 3.11+
 - Clear function and variable names
 - Add comments only where clarity is needed
 
+## Traceability Requirements (CRITICAL)
+
+- **100% Traceability**: Every piece of data MUST have a trace_id that links it back to its source
+- **No NULL trace_id**: trace_id is REQUIRED, not optional. If missing, generate one immediately
+- **End-to-end propagation**: trace_id must flow through every stage: iOS → watch_events → state_estimator → intervention_selector → app_interactions
+- **Explainability**: Any data point must be traceable back to the original biometric reading
+- **Defensibility**: Full audit trail from raw data to user interaction
+- **Fail fast**: If trace_id is missing at any stage, log an error and generate one (never allow NULL)
+
 # Architecture & Patterns
 
 ## Core Principles

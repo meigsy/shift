@@ -230,3 +230,35 @@ Each pipeline has Terraform for:
 - Org lien on prod
 - Budget alerts
 - IAM via Terraform
+
+---
+
+## Debugging with Traceability
+
+SHIFT includes end-to-end traceability using `trace_id` (UUIDv4) that flows through the entire pipeline from biometrics → watch events → state estimates → interventions → user interactions.
+
+### Finding a trace_id
+
+You can find `trace_id` from:
+- **watch_events table**: `SELECT trace_id FROM shift_data.watch_events WHERE user_id = '...' ORDER BY ingested_at DESC LIMIT 1`
+- **intervention_instances table**: `SELECT trace_id FROM shift_data.intervention_instances WHERE intervention_instance_id = '...'`
+- **state_estimates table**: `SELECT trace_id FROM shift_data.state_estimates WHERE user_id = '...' ORDER BY timestamp DESC LIMIT 1`
+
+### Viewing the full lifecycle
+
+Use the `trace_full_chain` view to reconstruct the complete lifecycle of any intervention:
+
+```sql
+SELECT *
+FROM shift_data.trace_full_chain
+WHERE trace_id = "{trace_id}"
+ORDER BY event_timestamp;
+```
+
+This view joins all tables on `trace_id` and provides a chronological narrative showing:
+- Raw biometrics (watch_events payload)
+- State scores (recovery, readiness, stress, fatigue)
+- Intervention metadata (metric, level, surface, intervention_key)
+- User interaction events (shown, tapped, dismissed)
+
+The view handles NULLs gracefully for backward compatibility with data created before traceability was implemented.
