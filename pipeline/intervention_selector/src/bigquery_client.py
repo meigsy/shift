@@ -139,9 +139,15 @@ class BigQueryClient:
 
         Args:
             intervention_instance_id: Intervention instance ID
-            status: New status ("sent" or "failed")
+            status: New status ("sent", "dismissed", or "failed")
             sent_at: Timestamp when sent (optional)
+        
+        Note: BigQuery streaming buffer limitation means UPDATE statements may fail
+        if the row was recently inserted. This method retries with exponential backoff.
         """
+        import time
+        from google.api_core import exceptions as bq_exceptions
+        
         table_id = f"{self.project_id}.{self.dataset_id}.intervention_instances"
 
         # Build update query
@@ -163,13 +169,42 @@ class BigQueryClient:
 
         job_config = bigquery.QueryJobConfig(query_parameters=params)
 
-        try:
-            query_job = self.client.query(query, job_config=job_config)
-            query_job.result()  # Wait for completion
-            logger.info(f"Updated intervention instance {intervention_instance_id} to status: {status}")
-        except Exception as e:
-            logger.error(f"Error updating intervention instance status: {e}", exc_info=True)
-            raise
+        # Retry logic for streaming buffer errors
+        max_retries = 3
+        base_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                query_job = self.client.query(query, job_config=job_config)
+                query_job.result()  # Wait for completion
+                logger.info(f"Updated intervention instance {intervention_instance_id} to status: {status}")
+                return
+            except bq_exceptions.BadRequest as e:
+                error_msg = str(e)
+                if "streaming buffer" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
+                        logger.warning(
+                            f"Streaming buffer error on attempt {attempt + 1}/{max_retries} "
+                            f"for intervention {intervention_instance_id}. Retrying in {delay}s..."
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(
+                            f"Failed to update intervention {intervention_instance_id} after {max_retries} attempts. "
+                            "Row may still be in streaming buffer. Status update will be delayed."
+                        )
+                        # Don't raise - allow the system to continue. The status can be updated later
+                        # when the streaming buffer flushes (typically within a few minutes)
+                        return
+                else:
+                    # Not a streaming buffer error, re-raise
+                    logger.error(f"Error updating intervention instance status: {e}", exc_info=True)
+                    raise
+            except Exception as e:
+                logger.error(f"Error updating intervention instance status: {e}", exc_info=True)
+                raise
 
     def get_intervention_instance(self, intervention_instance_id: str) -> Optional[dict]:
         """Get intervention instance by ID.
