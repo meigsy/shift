@@ -84,10 +84,12 @@ def process_state_estimate(user_id: str, timestamp: str) -> None:
             intervention_instance_id=intervention_instance_id,
         )
 
-        # Update intervention instance status
+        # Record intervention status change (append-only for 100% traceability)
         if success:
-            bq_client.update_intervention_instance_status(
+            bq_client.record_intervention_status_change(
                 intervention_instance_id=intervention_instance_id,
+                trace_id=trace_id,
+                user_id=user_id,
                 status="sent",
                 sent_at=datetime.now(timezone.utc),
             )
@@ -308,17 +310,34 @@ def update_intervention_status_handler(request) -> tuple[Dict[str, Any], int]:
         if new_status not in ["sent", "dismissed", "failed"]:
             return {"error": "Invalid status. Must be 'sent', 'dismissed', or 'failed'"}, 400
 
-        # Update status
+        # Record status change (append-only for 100% traceability)
         from datetime import datetime, timezone
         sent_at = datetime.now(timezone.utc) if new_status == "sent" else None
         
-        bq_client.update_intervention_instance_status(
+        # Get trace_id and user_id from the intervention instance
+        instance = bq_client.get_intervention_instance(intervention_instance_id)
+        if not instance:
+            return {"error": "Intervention instance not found"}, 404
+        
+        trace_id = instance.get("trace_id")
+        if not trace_id:
+            from uuid import uuid4
+            trace_id = str(uuid4())
+            logger.error(f"⚠️ CRITICAL: Missing trace_id in intervention {intervention_instance_id}! Generated: {trace_id}")
+        
+        user_id = instance.get("user_id")
+        if not user_id:
+            return {"error": "Intervention instance missing user_id"}, 500
+        
+        bq_client.record_intervention_status_change(
             intervention_instance_id=intervention_instance_id,
+            trace_id=trace_id,
+            user_id=user_id,
             status=new_status,
             sent_at=sent_at
         )
 
-        logger.info(f"Updated intervention {intervention_instance_id} to status: {new_status}")
+        logger.info(f"Recorded status change for intervention {intervention_instance_id}: {new_status}")
         
         return {"message": f"Intervention status updated to {new_status}", "intervention_instance_id": intervention_instance_id}, 200
 

@@ -129,107 +129,92 @@ class BigQueryClient:
             logger.error(f"Error creating intervention instance: {e}", exc_info=True)
             raise
 
-    def update_intervention_instance_status(
+    def record_intervention_status_change(
         self,
         intervention_instance_id: str,
+        trace_id: str,
+        user_id: str,
         status: str,
         sent_at: Optional[datetime] = None,
     ) -> None:
-        """Update intervention instance status.
+        """Record intervention status change (append-only for 100% traceability).
 
         Args:
             intervention_instance_id: Intervention instance ID
+            trace_id: Trace ID for full traceability
+            user_id: User ID
             status: New status ("sent", "dismissed", or "failed")
             sent_at: Timestamp when sent (optional)
         
-        Note: BigQuery streaming buffer limitation means UPDATE statements may fail
-        if the row was recently inserted. This method retries with exponential backoff.
+        Note: This is append-only - we never UPDATE existing rows. All status changes
+        are recorded as new rows in intervention_status_changes table.
         """
-        import time
-        from google.api_core import exceptions as bq_exceptions
+        from uuid import uuid4
         
-        table_id = f"{self.project_id}.{self.dataset_id}.intervention_instances"
+        table_id = f"{self.project_id}.{self.dataset_id}.intervention_status_changes"
+        status_change_id = str(uuid4())
+        changed_at = datetime.now(timezone.utc)
 
-        # Build update query
-        updates = [f"status = @status"]
-        params = [
-            bigquery.ScalarQueryParameter("intervention_instance_id", "STRING", intervention_instance_id),
-            bigquery.ScalarQueryParameter("status", "STRING", status),
+        rows_to_insert = [
+            {
+                "status_change_id": status_change_id,
+                "intervention_instance_id": intervention_instance_id,
+                "trace_id": trace_id,
+                "user_id": user_id,
+                "status": status,
+                "sent_at": sent_at.isoformat() if sent_at else None,
+                "changed_at": changed_at.isoformat(),
+            }
         ]
 
-        if sent_at:
-            updates.append("sent_at = @sent_at")
-            params.append(bigquery.ScalarQueryParameter("sent_at", "TIMESTAMP", sent_at))
+        try:
+            errors = self.client.insert_rows_json(table_id, rows_to_insert)
+            if errors:
+                logger.error(f"Error inserting status change: {errors}")
+                raise RuntimeError(f"Failed to insert status change: {errors}")
 
-        query = f"""
-            UPDATE `{table_id}`
-            SET {', '.join(updates)}
-            WHERE intervention_instance_id = @intervention_instance_id
-        """
-
-        job_config = bigquery.QueryJobConfig(query_parameters=params)
-
-        # Retry logic for streaming buffer errors
-        max_retries = 3
-        base_delay = 2  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                query_job = self.client.query(query, job_config=job_config)
-                query_job.result()  # Wait for completion
-                logger.info(f"Updated intervention instance {intervention_instance_id} to status: {status}")
-                return
-            except bq_exceptions.BadRequest as e:
-                error_msg = str(e)
-                if "streaming buffer" in error_msg.lower():
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
-                        logger.warning(
-                            f"Streaming buffer error on attempt {attempt + 1}/{max_retries} "
-                            f"for intervention {intervention_instance_id}. Retrying in {delay}s..."
-                        )
-                        time.sleep(delay)
-                        continue
-                    else:
-                        logger.error(
-                            f"Failed to update intervention {intervention_instance_id} after {max_retries} attempts. "
-                            "Row may still be in streaming buffer. Status update will be delayed."
-                        )
-                        # Don't raise - allow the system to continue. The status can be updated later
-                        # when the streaming buffer flushes (typically within a few minutes)
-                        return
-                else:
-                    # Not a streaming buffer error, re-raise
-                    logger.error(f"Error updating intervention instance status: {e}", exc_info=True)
-                    raise
-            except Exception as e:
-                logger.error(f"Error updating intervention instance status: {e}", exc_info=True)
-                raise
+            logger.info(
+                f"Recorded status change for intervention {intervention_instance_id}: "
+                f"{status} (change_id: {status_change_id})"
+            )
+        except Exception as e:
+            logger.error(f"Error recording intervention status change: {e}", exc_info=True)
+            raise
 
     def get_intervention_instance(self, intervention_instance_id: str) -> Optional[dict]:
-        """Get intervention instance by ID.
+        """Get intervention instance by ID with latest status from status_changes table.
 
         Args:
             intervention_instance_id: Intervention instance ID
 
         Returns:
-            Dict with intervention instance data or None if not found
+            Dict with intervention instance data (including latest status) or None if not found
         """
         query = f"""
+            WITH latest_status AS (
+                SELECT
+                    intervention_instance_id,
+                    status,
+                    sent_at,
+                    ROW_NUMBER() OVER (PARTITION BY intervention_instance_id ORDER BY changed_at DESC) as rn
+                FROM `{self.project_id}.{self.dataset_id}.intervention_status_changes`
+                WHERE intervention_instance_id = @intervention_instance_id
+            )
             SELECT
-                intervention_instance_id,
-                user_id,
-                trace_id,
-                metric,
-                level,
-                surface,
-                intervention_key,
-                created_at,
-                scheduled_at,
-                sent_at,
-                status
-            FROM `{self.project_id}.{self.dataset_id}.intervention_instances`
-            WHERE intervention_instance_id = @intervention_instance_id
+                i.intervention_instance_id,
+                i.user_id,
+                i.trace_id,
+                i.metric,
+                i.level,
+                i.surface,
+                i.intervention_key,
+                i.created_at,
+                i.scheduled_at,
+                COALESCE(ls.sent_at, i.sent_at) as sent_at,
+                COALESCE(ls.status, i.status) as status
+            FROM `{self.project_id}.{self.dataset_id}.intervention_instances` i
+            LEFT JOIN latest_status ls ON i.intervention_instance_id = ls.intervention_instance_id AND ls.rn = 1
+            WHERE i.intervention_instance_id = @intervention_instance_id
             LIMIT 1
         """
 
@@ -313,22 +298,31 @@ class BigQueryClient:
         from src.catalog import get_intervention
 
         query = f"""
+            WITH latest_status AS (
+                SELECT
+                    intervention_instance_id,
+                    status,
+                    sent_at,
+                    ROW_NUMBER() OVER (PARTITION BY intervention_instance_id ORDER BY changed_at DESC) as rn
+                FROM `{self.project_id}.{self.dataset_id}.intervention_status_changes`
+            )
             SELECT
-                intervention_instance_id,
-                user_id,
-                trace_id,
-                metric,
-                level,
-                surface,
-                intervention_key,
-                created_at,
-                scheduled_at,
-                sent_at,
-                status
-            FROM `{self.project_id}.{self.dataset_id}.intervention_instances`
-            WHERE user_id = @user_id
-            AND status = @status
-            ORDER BY created_at DESC
+                i.intervention_instance_id,
+                i.user_id,
+                i.trace_id,
+                i.metric,
+                i.level,
+                i.surface,
+                i.intervention_key,
+                i.created_at,
+                i.scheduled_at,
+                COALESCE(ls.sent_at, i.sent_at) as sent_at,
+                COALESCE(ls.status, i.status) as status
+            FROM `{self.project_id}.{self.dataset_id}.intervention_instances` i
+            LEFT JOIN latest_status ls ON i.intervention_instance_id = ls.intervention_instance_id AND ls.rn = 1
+            WHERE i.user_id = @user_id
+            AND COALESCE(ls.status, i.status) = @status
+            ORDER BY i.created_at DESC
         """
 
         job_config = bigquery.QueryJobConfig(

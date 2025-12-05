@@ -61,11 +61,6 @@ resource "google_bigquery_table" "watch_events" {
     "mode": "REQUIRED"
   },
   {
-    "name": "trace_id",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  },
-  {
     "name": "payload",
     "type": "JSON",
     "mode": "REQUIRED"
@@ -74,6 +69,11 @@ resource "google_bigquery_table" "watch_events" {
     "name": "ingested_at",
     "type": "TIMESTAMP",
     "mode": "REQUIRED"
+  },
+  {
+    "name": "trace_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
   }
 ]
 EOF
@@ -100,28 +100,28 @@ resource "google_bigquery_table" "state_estimates" {
     "mode": "REQUIRED"
   },
   {
-    "name": "trace_id",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  },
-  {
     "name": "recovery",
-    "type": "FLOAT64",
+    "type": "FLOAT",
     "mode": "NULLABLE"
   },
   {
     "name": "readiness",
-    "type": "FLOAT64",
+    "type": "FLOAT",
     "mode": "NULLABLE"
   },
   {
     "name": "stress",
-    "type": "FLOAT64",
+    "type": "FLOAT",
     "mode": "NULLABLE"
   },
   {
     "name": "fatigue",
-    "type": "FLOAT64",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "trace_id",
+    "type": "STRING",
     "mode": "NULLABLE"
   }
 ]
@@ -194,11 +194,6 @@ resource "google_bigquery_table" "intervention_instances" {
     "mode": "REQUIRED"
   },
   {
-    "name": "trace_id",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  },
-  {
     "name": "metric",
     "type": "STRING",
     "mode": "REQUIRED"
@@ -236,6 +231,60 @@ resource "google_bigquery_table" "intervention_instances" {
   {
     "name": "status",
     "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "trace_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]
+EOF
+
+  depends_on = [google_bigquery_dataset.shift_data]
+}
+
+# BigQuery Table for Intervention Status Changes (append-only for 100% traceability)
+resource "google_bigquery_table" "intervention_status_changes" {
+  dataset_id = google_bigquery_dataset.shift_data.dataset_id
+  table_id   = "intervention_status_changes"
+  project    = var.project_id
+
+  schema = <<EOF
+[
+  {
+    "name": "status_change_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "intervention_instance_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "trace_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "user_id",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "sent_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "changed_at",
+    "type": "TIMESTAMP",
     "mode": "REQUIRED"
   }
 ]
@@ -369,6 +418,17 @@ cte_intervention_instances AS (
   FROM `${var.project_id}.shift_data.intervention_instances`
   WHERE trace_id IS NOT NULL
 ),
+cte_intervention_status_changes AS (
+  SELECT
+    trace_id,
+    user_id,
+    intervention_instance_id,
+    changed_at AS event_timestamp,
+    status,
+    'status_change' AS event_type
+  FROM `${var.project_id}.shift_data.intervention_status_changes`
+  WHERE trace_id IS NOT NULL
+),
 cte_app_interactions AS (
   SELECT
     trace_id,
@@ -386,6 +446,8 @@ cte_all_events AS (
   SELECT trace_id, user_id, event_timestamp, event_type, NULL, NULL, recovery, readiness, stress, fatigue, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM cte_state_estimates
   UNION ALL
   SELECT trace_id, user_id, event_timestamp, event_type, NULL, NULL, NULL, NULL, NULL, NULL, intervention_instance_id, metric, level, surface, intervention_key, status, NULL FROM cte_intervention_instances
+  UNION ALL
+  SELECT trace_id, user_id, event_timestamp, CONCAT('status_', status) AS event_type, NULL, NULL, NULL, NULL, NULL, NULL, intervention_instance_id, NULL, NULL, NULL, NULL, status, NULL FROM cte_intervention_status_changes
   UNION ALL
   SELECT trace_id, user_id, event_timestamp, event_type_label, NULL, NULL, NULL, NULL, NULL, NULL, intervention_instance_id, NULL, NULL, NULL, NULL, NULL, event_type FROM cte_app_interactions
 )
@@ -417,6 +479,7 @@ EOT
     google_bigquery_table.watch_events,
     google_bigquery_table.state_estimates,
     google_bigquery_table.intervention_instances,
+    google_bigquery_table.intervention_status_changes,
     google_bigquery_table.app_interactions
   ]
 }
