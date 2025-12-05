@@ -38,12 +38,12 @@ struct InterventionBanner: View {
                 Spacer()
                 
                 Button(action: {
-                    // Record "tapped" interaction
+                    // Record manual dismiss interaction
                     if let interactionService = interactionService {
                         Task {
                             try? await interactionService.recordInteraction(
                                 intervention: intervention,
-                                eventType: "tapped",
+                                eventType: InteractionEventType.dismissManual,
                                 userId: userId
                             )
                         }
@@ -71,12 +71,12 @@ struct InterventionBanner: View {
                     .onEnded { value in
                         if value.translation.height < -50 {
                             // Dismiss if dragged up enough
-                            // Record "dismissed" interaction
+                            // Record manual dismiss interaction
                             if let interactionService = interactionService {
                                 Task {
                                     try? await interactionService.recordInteraction(
                                         intervention: intervention,
-                                        eventType: "dismissed",
+                                        eventType: InteractionEventType.dismissManual,
                                         userId: userId
                                     )
                                 }
@@ -103,14 +103,25 @@ struct InterventionBanner: View {
                 isVisible = true
             }
             
+            // Record "shown" interaction
+            if let interactionService = interactionService {
+                Task {
+                    try? await interactionService.recordInteraction(
+                        intervention: intervention,
+                        eventType: InteractionEventType.shown,
+                        userId: userId
+                    )
+                }
+            }
+            
             // Auto-dismiss after 30 seconds (increased for easier testing)
             DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-                // Record "dismissed" interaction for auto-dismiss
+                // Record timeout dismiss interaction
                 if let interactionService = interactionService {
                     Task {
                         try? await interactionService.recordInteraction(
                             intervention: intervention,
-                            eventType: "dismissed",
+                            eventType: InteractionEventType.dismissTimeout,
                             userId: userId
                         )
                     }

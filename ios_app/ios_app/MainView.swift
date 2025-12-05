@@ -287,16 +287,8 @@ struct MainView: View {
         displayedBanners.append(intervention)
         interventionRouter.newIntervention = nil
         
-        // Record "shown" interaction
-        if let interactionService = interactionService, let userId = authViewModel.user?.userId {
-            Task {
-                try? await interactionService.recordInteraction(
-                    intervention: intervention,
-                    eventType: "shown",
-                    userId: userId
-                )
-            }
-        }
+        // Note: "shown" interaction is recorded in InterventionBanner.onAppear to ensure
+        // it's logged exactly once per banner impression
         
         // Update intervention status to "sent" when displayed
         if let interventionService = interventionService {

@@ -96,7 +96,7 @@ class AppInteractionRequest(BaseModel):
     trace_id: str = Field(..., description="Trace ID linking to the intervention lifecycle")
     user_id: str = Field(..., description="User ID")
     intervention_instance_id: Optional[str] = Field(None, description="Intervention instance ID")
-    event_type: str = Field(..., description="Event type: 'shown', 'tapped', or 'dismissed'")
+    event_type: str = Field(..., description="Event type: 'shown', 'tap_primary', 'dismiss_manual', 'dismiss_timeout'")
     timestamp: datetime = Field(..., description="Event timestamp")
 
 
