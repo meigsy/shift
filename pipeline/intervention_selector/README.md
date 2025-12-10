@@ -45,10 +45,10 @@ intervention_selector/
 ├── requirements.txt         # Python dependencies
 ├── pyproject.toml          # Project metadata
 └── src/
-    ├── catalog.py          # Hard-coded intervention catalog
+    ├── catalog.py          # ⚠️ Deprecated (use BigQuery intervention_catalog table)
     ├── bucketing.py        # Stress bucketing logic
-    ├── selector.py         # Intervention selection logic
-    ├── bigquery_client.py  # BigQuery operations
+    ├── selector.py         # Intervention selection logic (uses catalog + preferences)
+    ├── bigquery_client.py  # BigQuery operations (catalog, preferences, rate limiting)
     └── apns.py             # APNs push notification support
 ```
 

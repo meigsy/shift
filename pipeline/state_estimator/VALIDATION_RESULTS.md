@@ -1,5 +1,7 @@
 # State Estimator Pipeline - Validation Results
 
+**Purpose**: Historical validation results from December 2025. Kept for reference.
+
 **Date:** 2025-12-01  
 **Validation Method:** Automated tests + BigQuery CLI validation
 

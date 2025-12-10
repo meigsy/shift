@@ -1,5 +1,7 @@
 # Manual HealthKit Test Guide
 
+**Purpose**: Step-by-step guide for manually testing the intervention flow by inputting specific HealthKit values.
+
 This guide shows you how to manually input HealthKit data that will trigger a HIGH STRESS intervention notification.
 
 ## Goal

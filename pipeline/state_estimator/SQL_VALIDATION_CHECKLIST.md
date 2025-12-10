@@ -1,5 +1,7 @@
 # SQL Validation Checklist
 
+**Purpose**: Reference guide for manually validating SQL logic in BigQuery. Used during development and testing.
+
 Manual validation steps to verify SQL logic works correctly in BigQuery.
 
 ## Prerequisites
