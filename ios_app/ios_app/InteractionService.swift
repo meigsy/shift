@@ -7,13 +7,6 @@
 
 import Foundation
 
-struct InteractionEventType {
-    static let shown = "shown"
-    static let tapPrimary = "tap_primary"
-    static let dismissManual = "dismiss_manual"
-    static let dismissTimeout = "dismiss_timeout"
-}
-
 @MainActor
 class InteractionService {
     private let apiClient: ApiClient

@@ -61,6 +61,11 @@ resource "google_bigquery_table" "watch_events" {
     "mode": "REQUIRED"
   },
   {
+    "name": "trace_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
     "name": "payload",
     "type": "JSON",
     "mode": "REQUIRED"
@@ -69,11 +74,6 @@ resource "google_bigquery_table" "watch_events" {
     "name": "ingested_at",
     "type": "TIMESTAMP",
     "mode": "REQUIRED"
-  },
-  {
-    "name": "trace_id",
-    "type": "STRING",
-    "mode": "NULLABLE"
   }
 ]
 EOF
@@ -100,28 +100,28 @@ resource "google_bigquery_table" "state_estimates" {
     "mode": "REQUIRED"
   },
   {
+    "name": "trace_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
     "name": "recovery",
-    "type": "FLOAT",
+    "type": "FLOAT64",
     "mode": "NULLABLE"
   },
   {
     "name": "readiness",
-    "type": "FLOAT",
+    "type": "FLOAT64",
     "mode": "NULLABLE"
   },
   {
     "name": "stress",
-    "type": "FLOAT",
+    "type": "FLOAT64",
     "mode": "NULLABLE"
   },
   {
     "name": "fatigue",
-    "type": "FLOAT",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "trace_id",
-    "type": "STRING",
+    "type": "FLOAT64",
     "mode": "NULLABLE"
   }
 ]
@@ -194,6 +194,11 @@ resource "google_bigquery_table" "intervention_instances" {
     "mode": "REQUIRED"
   },
   {
+    "name": "trace_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
     "name": "metric",
     "type": "STRING",
     "mode": "REQUIRED"
@@ -231,60 +236,6 @@ resource "google_bigquery_table" "intervention_instances" {
   {
     "name": "status",
     "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "trace_id",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  }
-]
-EOF
-
-  depends_on = [google_bigquery_dataset.shift_data]
-}
-
-# BigQuery Table for Intervention Status Changes (append-only for 100% traceability)
-resource "google_bigquery_table" "intervention_status_changes" {
-  dataset_id = google_bigquery_dataset.shift_data.dataset_id
-  table_id   = "intervention_status_changes"
-  project    = var.project_id
-
-  schema = <<EOF
-[
-  {
-    "name": "status_change_id",
-    "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "intervention_instance_id",
-    "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "trace_id",
-    "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "user_id",
-    "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "status",
-    "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "sent_at",
-    "type": "TIMESTAMP",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "changed_at",
-    "type": "TIMESTAMP",
     "mode": "REQUIRED"
   }
 ]
@@ -418,17 +369,6 @@ cte_intervention_instances AS (
   FROM `${var.project_id}.shift_data.intervention_instances`
   WHERE trace_id IS NOT NULL
 ),
-cte_intervention_status_changes AS (
-  SELECT
-    trace_id,
-    user_id,
-    intervention_instance_id,
-    changed_at AS event_timestamp,
-    status,
-    'status_change' AS event_type
-  FROM `${var.project_id}.shift_data.intervention_status_changes`
-  WHERE trace_id IS NOT NULL
-),
 cte_app_interactions AS (
   SELECT
     trace_id,
@@ -446,8 +386,6 @@ cte_all_events AS (
   SELECT trace_id, user_id, event_timestamp, event_type, NULL, NULL, recovery, readiness, stress, fatigue, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM cte_state_estimates
   UNION ALL
   SELECT trace_id, user_id, event_timestamp, event_type, NULL, NULL, NULL, NULL, NULL, NULL, intervention_instance_id, metric, level, surface, intervention_key, status, NULL FROM cte_intervention_instances
-  UNION ALL
-  SELECT trace_id, user_id, event_timestamp, CONCAT('status_', status) AS event_type, NULL, NULL, NULL, NULL, NULL, NULL, intervention_instance_id, NULL, NULL, NULL, NULL, status, NULL FROM cte_intervention_status_changes
   UNION ALL
   SELECT trace_id, user_id, event_timestamp, event_type_label, NULL, NULL, NULL, NULL, NULL, NULL, intervention_instance_id, NULL, NULL, NULL, NULL, NULL, event_type FROM cte_app_interactions
 )
@@ -479,8 +417,118 @@ EOT
     google_bigquery_table.watch_events,
     google_bigquery_table.state_estimates,
     google_bigquery_table.intervention_instances,
-    google_bigquery_table.intervention_status_changes,
     google_bigquery_table.app_interactions
+  ]
+}
+
+# BigQuery Table for Intervention Catalog
+resource "google_bigquery_table" "intervention_catalog" {
+  dataset_id = google_bigquery_dataset.shift_data.dataset_id
+  table_id   = "intervention_catalog"
+  project    = var.project_id
+
+  schema = <<EOF
+[
+  {
+    "name": "intervention_key",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "metric",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "level",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "surface",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "title",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "body",
+    "type": "STRING",
+    "mode": "REQUIRED"
+  },
+  {
+    "name": "nudge_type",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "persona",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "enabled",
+    "type": "BOOL",
+    "mode": "REQUIRED"
+  }
+]
+EOF
+
+  depends_on = [google_bigquery_dataset.shift_data]
+}
+
+# BigQuery View for Surface Preferences
+resource "google_bigquery_table" "surface_preferences" {
+  dataset_id = google_bigquery_dataset.shift_data.dataset_id
+  table_id   = "surface_preferences"
+  project    = var.project_id
+
+  view {
+    query = <<-EOT
+WITH cte_interactions_with_surface AS (
+  SELECT
+    ai.user_id,
+    -- Map iOS event types to canonical preference modeling event types
+    -- iOS sends: "shown", "tapped", "dismissed"
+    -- Canonical: "shown", "tap_primary", "dismiss_manual", "dismiss_timeout"
+    CASE
+      WHEN ai.event_type = 'tapped' THEN 'tap_primary'
+      WHEN ai.event_type = 'dismissed' THEN 'dismiss_manual'  -- iOS doesn't distinguish manual vs timeout yet
+      ELSE ai.event_type  -- "shown" and any future types pass through
+    END AS event_type,
+    ai.timestamp,
+    ii.surface
+  FROM `${var.project_id}.shift_data.app_interactions` ai
+  INNER JOIN `${var.project_id}.shift_data.intervention_instances` ii
+    ON ai.intervention_instance_id = ii.intervention_instance_id
+  WHERE ai.timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+    AND ai.intervention_instance_id IS NOT NULL
+)
+SELECT
+  user_id,
+  surface,
+  COUNTIF(event_type = 'shown') AS shown_count,
+  COUNTIF(event_type = 'dismiss_manual') AS dismiss_manual_count,
+  COUNTIF(event_type = 'dismiss_timeout') AS dismiss_timeout_count,
+  COUNTIF(event_type = 'tap_primary') AS tap_primary_count,
+  SAFE_DIVIDE(COUNTIF(event_type = 'tap_primary'), COUNTIF(event_type = 'shown')) AS engagement_rate,
+  SAFE_DIVIDE(COUNTIF(event_type = 'dismiss_manual'), COUNTIF(event_type = 'shown')) AS annoyance_rate,
+  SAFE_DIVIDE(COUNTIF(event_type = 'dismiss_timeout'), COUNTIF(event_type = 'shown')) AS ignore_rate,
+  SAFE_DIVIDE(COUNTIF(event_type = 'tap_primary'), COUNTIF(event_type = 'shown')) - 
+    SAFE_DIVIDE(COUNTIF(event_type = 'dismiss_manual'), COUNTIF(event_type = 'shown')) AS preference_score,
+  CURRENT_TIMESTAMP() AS updated_at
+FROM cte_interactions_with_surface
+GROUP BY user_id, surface
+EOT
+    use_legacy_sql = false
+  }
+
+  depends_on = [
+    google_bigquery_table.app_interactions,
+    google_bigquery_table.intervention_instances
   ]
 }
 

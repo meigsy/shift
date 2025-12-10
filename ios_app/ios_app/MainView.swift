@@ -23,7 +23,6 @@ struct MainView: View {
     @State private var displayedBanners: [Intervention] = []
     @State private var interventionBaseURL: String = "https://us-central1-shift-dev-478422.cloudfunctions.net/intervention-selector-http"
     @State private var interactionService: InteractionService?
-    @State private var interventionService: InterventionService?
     
     var body: some View {
         mainContent
@@ -88,16 +87,6 @@ struct MainView: View {
                     interactionService: interactionService,
                     userId: authViewModel.user?.userId ?? ""
                 ) {
-                    // Update status to "dismissed" when banner is dismissed
-                    if let interventionService = interventionService {
-                        Task {
-                            do {
-                                try await interventionService.updateInterventionStatus(intervention.interventionInstanceId, status: "dismissed")
-                            } catch {
-                                print("⚠️ Failed to update intervention status to dismissed: \(error.localizedDescription)")
-                            }
-                        }
-                    }
                     displayedBanners.removeAll { $0.id == intervention.id }
                 }
             }
@@ -287,17 +276,14 @@ struct MainView: View {
         displayedBanners.append(intervention)
         interventionRouter.newIntervention = nil
         
-        // Note: "shown" interaction is recorded in InterventionBanner.onAppear to ensure
-        // it's logged exactly once per banner impression
-        
-        // Update intervention status to "sent" when displayed
-        if let interventionService = interventionService {
+        // Record "shown" interaction
+        if let interactionService = interactionService, let userId = authViewModel.user?.userId {
             Task {
-                do {
-                    try await interventionService.updateInterventionStatus(intervention.interventionInstanceId, status: "sent")
-                } catch {
-                    print("⚠️ [\(timestamp)] Failed to update intervention status: \(error.localizedDescription)")
-                }
+                try? await interactionService.recordInteraction(
+                    intervention: intervention,
+                    eventType: "shown",
+                    userId: userId
+                )
             }
         }
     }
@@ -328,9 +314,8 @@ struct MainView: View {
         )
         apiClient.setToken(authViewModel.idToken)
         
-        // Create intervention service (for fetching and updating interventions)
-        let newInterventionService = InterventionService(apiClient: apiClient)
-        self.interventionService = newInterventionService
+        // Create intervention service (for fetching interventions)
+        let interventionService = InterventionService(apiClient: apiClient)
         
         // Create interaction service (for tracking user interactions)
         let watchEventsApiClient = ApiClient(
@@ -342,7 +327,7 @@ struct MainView: View {
         
         // Create and start poller
         let poller = InterventionPoller(
-            interventionService: newInterventionService,
+            interventionService: interventionService,
             router: interventionRouter,
             userId: userId
         )

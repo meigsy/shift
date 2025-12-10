@@ -15,7 +15,6 @@ struct InterventionBanner: View {
     
     @State private var isVisible = false
     @State private var dragOffset: CGFloat = 0
-    @State private var autoDismissTask: Task<Void, Never>?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -39,16 +38,12 @@ struct InterventionBanner: View {
                 Spacer()
                 
                 Button(action: {
-                    // Cancel auto-dismiss timer
-                    autoDismissTask?.cancel()
-                    autoDismissTask = nil
-                    
-                    // Record manual dismiss interaction
+                    // Record "tapped" interaction
                     if let interactionService = interactionService {
                         Task {
                             try? await interactionService.recordInteraction(
                                 intervention: intervention,
-                                eventType: InteractionEventType.dismissManual,
+                                eventType: "tapped",
                                 userId: userId
                             )
                         }
@@ -75,17 +70,13 @@ struct InterventionBanner: View {
                     }
                     .onEnded { value in
                         if value.translation.height < -50 {
-                            // Cancel auto-dismiss timer
-                            autoDismissTask?.cancel()
-                            autoDismissTask = nil
-                            
                             // Dismiss if dragged up enough
-                            // Record manual dismiss interaction
+                            // Record "dismissed" interaction
                             if let interactionService = interactionService {
                                 Task {
                                     try? await interactionService.recordInteraction(
                                         intervention: intervention,
-                                        eventType: InteractionEventType.dismissManual,
+                                        eventType: "dismissed",
                                         userId: userId
                                     )
                                 }
@@ -112,43 +103,23 @@ struct InterventionBanner: View {
                 isVisible = true
             }
             
-            // Record "shown" interaction
-            if let interactionService = interactionService {
-                Task {
-                    try? await interactionService.recordInteraction(
-                        intervention: intervention,
-                        eventType: InteractionEventType.shown,
-                        userId: userId
-                    )
-                }
-            }
-            
             // Auto-dismiss after 30 seconds (increased for easier testing)
-            autoDismissTask = Task {
-                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
-                
-                // Check if task was cancelled (manual dismiss happened)
-                guard !Task.isCancelled else { return }
-                
-                // Record timeout dismiss interaction
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                // Record "dismissed" interaction for auto-dismiss
                 if let interactionService = interactionService {
-                    try? await interactionService.recordInteraction(
-                        intervention: intervention,
-                        eventType: InteractionEventType.dismissTimeout,
-                        userId: userId
-                    )
+                    Task {
+                        try? await interactionService.recordInteraction(
+                            intervention: intervention,
+                            eventType: "dismissed",
+                            userId: userId
+                        )
+                    }
                 }
-                
-                // Check again after async call
-                guard !Task.isCancelled else { return }
-                
-                await MainActor.run {
-                    withAnimation(.spring()) {
-                        isVisible = false
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        onDismiss()
-                    }
+                withAnimation(.spring()) {
+                    isVisible = false
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    onDismiss()
                 }
             }
         }

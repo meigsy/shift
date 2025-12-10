@@ -67,10 +67,9 @@ shift/
 │   │   └── → stress, recovery, fatigue, readiness
 │   ├── withings_events/   # Withings API → BigQuery (future)
 │   ├── chat_events/       # Conversation → BigQuery (future)
-│   ├── app_interactions/  # Surface reactions → BigQuery (future)
-│   ├── interaction_preferences/  # → user preferences from behavior (future)
-│   ├── intervention_selector/    # → picks & delivers interventions (future)
-│   └── intervention_catalog/     # Google Sheet sync (reference data) (future)
+│   ├── app_interactions/  # Surface reactions → BigQuery (iOS app writes directly)
+│   ├── intervention_selector/    # ✅ Adaptive selector with preference modeling
+│   └── intervention_catalog/     # ✅ BigQuery table (data-driven catalog)
 ├── terraform/             # GCP infrastructure
 │   ├── projects/dev/
 │   └── projects/prod/
@@ -114,14 +113,13 @@ Each pipeline is a standalone module with:
 | Pipeline | Input | Output |
 |----------|-------|--------|
 | `state_estimator` | All events | stress, recovery, fatigue, readiness scores |
-| `interaction_preferences` | app_interactions, chat_events | User preference model |
-| `intervention_selector` | State + preferences + catalog | Selected intervention(s) |
+| `intervention_selector` | State + preferences + catalog | ✅ Selected intervention(s) with adaptive learning |
 
 ### Reference Data
 
 | Pipeline | Source | Output |
 |----------|--------|--------|
-| `intervention_catalog` | Google Sheet (SME-edited) | BigQuery reference table |
+| `intervention_catalog` | BigQuery table (manually loaded) | ✅ BigQuery reference table |
 
 ---
 

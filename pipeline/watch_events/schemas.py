@@ -92,11 +92,20 @@ class WatchEventsResponse(BaseModel):
 
 
 class AppInteractionRequest(BaseModel):
-    """Request body for /app_interactions endpoint."""
+    """Request body for /app_interactions endpoint.
+    
+    Event types (iOS sends these directly):
+    - 'shown': Intervention was displayed to user
+    - 'tapped': User tapped the intervention (mapped to 'tap_primary' in preference modeling)
+    - 'dismissed': User dismissed intervention (mapped to 'dismiss_manual' in preference modeling)
+    
+    Note: The surface_preferences view automatically maps iOS event types to canonical
+    preference modeling types ('tap_primary', 'dismiss_manual', 'dismiss_timeout').
+    """
     trace_id: str = Field(..., description="Trace ID linking to the intervention lifecycle")
     user_id: str = Field(..., description="User ID")
     intervention_instance_id: Optional[str] = Field(None, description="Intervention instance ID")
-    event_type: str = Field(..., description="Event type: 'shown', 'tap_primary', 'dismiss_manual', 'dismiss_timeout'")
+    event_type: str = Field(..., description="Event type: 'shown', 'tapped', or 'dismissed' (iOS format)")
     timestamp: datetime = Field(..., description="Event timestamp")
 
 

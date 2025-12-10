@@ -13,8 +13,11 @@ import functions_framework
 
 from src.bigquery_client import BigQueryClient
 from src.selector import select_intervention
-from src.catalog import get_intervention
 from src.apns import send_push_notification
+
+# Rate limiting constants
+RATE_LIMIT_MINUTES = 30
+RATE_LIMIT_MAX_COUNT = 3
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,10 +49,19 @@ def process_state_estimate(user_id: str, timestamp: str) -> None:
             f"State estimate timestamp mismatch: expected {timestamp}, got {state_estimate['timestamp'].isoformat()}"
         )
 
-    # Select intervention based on stress
-    intervention = select_intervention(state_estimate.get("stress"))
+    # Select intervention based on stress, catalog, and preferences
+    intervention = select_intervention(state_estimate, bq_client)
     if not intervention:
         logger.info(f"No intervention selected for user {user_id}")
+        return
+
+    # Rate limiting: check recent intervention count
+    recent_count = bq_client.get_recent_intervention_count(user_id, minutes=RATE_LIMIT_MINUTES)
+    if recent_count >= RATE_LIMIT_MAX_COUNT:
+        logger.info(
+            f"Rate limit exceeded for user {user_id}: {recent_count} interventions "
+            f"in last {RATE_LIMIT_MINUTES} minutes (max: {RATE_LIMIT_MAX_COUNT}). Skipping intervention."
+        )
         return
 
     # Create intervention instance
@@ -84,12 +96,10 @@ def process_state_estimate(user_id: str, timestamp: str) -> None:
             intervention_instance_id=intervention_instance_id,
         )
 
-        # Record intervention status change (append-only for 100% traceability)
+        # Update intervention instance status
         if success:
-            bq_client.record_intervention_status_change(
+            bq_client.update_intervention_instance_status(
                 intervention_instance_id=intervention_instance_id,
-                trace_id=trace_id,
-                user_id=user_id,
                 status="sent",
                 sent_at=datetime.now(timezone.utc),
             )
@@ -177,12 +187,11 @@ def intervention_selector(cloud_event: CloudEvent) -> None:
 
 @functions_framework.http
 def get_intervention(request) -> tuple[Dict[str, Any], int]:
-    """HTTP endpoint to get intervention instance details, list interventions, or update status.
+    """HTTP endpoint to get intervention instance details or list interventions.
 
-    Supports:
+    Supports two patterns:
     - GET /interventions/{id} - Get single intervention by ID
     - GET /interventions?user_id={user_id}&status={status} - List interventions for user
-    - PATCH /interventions/{id}/status - Update intervention status
 
     Args:
         request: Flask request object
@@ -190,10 +199,6 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
     Returns:
         Tuple of (response dict, status code)
     """
-    # Handle PATCH requests for status updates
-    if request.method == "PATCH":
-        return update_intervention_status_handler(request)
-    
     try:
         project_id = os.getenv("GCP_PROJECT_ID")
         if not project_id:
@@ -231,8 +236,14 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
         if not instance:
             return {"error": "Intervention instance not found"}, 404
 
-        # Get intervention details from catalog
-        intervention = get_intervention(instance["intervention_key"])
+        # Get intervention details from BigQuery catalog
+        catalog_items = bq_client.get_catalog_for_stress_level(instance["level"])
+        intervention = None
+        for item in catalog_items:
+            if item["intervention_key"] == instance["intervention_key"]:
+                intervention = item
+                break
+
         if not intervention:
             return {"error": "Intervention not found in catalog"}, 500
 
@@ -257,91 +268,5 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
 
     except Exception as e:
         logger.error(f"Error getting intervention instance: {e}", exc_info=True)
-        return {"error": "Internal server error"}, 500
-
-
-def update_intervention_status_handler(request) -> tuple[Dict[str, Any], int]:
-    """HTTP endpoint to update intervention instance status.
-    
-    Supports:
-    - PATCH /interventions/{id}/status - Update status by ID
-    
-    Request body:
-    {
-        "status": "sent" | "dismissed" | "failed"
-    }
-    
-    Args:
-        request: Flask request object
-        
-    Returns:
-        Tuple of (response dict, status code)
-    """
-    try:
-        project_id = os.getenv("GCP_PROJECT_ID")
-        if not project_id:
-            return {"error": "GCP_PROJECT_ID not configured"}, 500
-
-        dataset_id = os.getenv("BQ_DATASET_ID", "shift_data")
-        bq_client = BigQueryClient(project_id=project_id, dataset_id=dataset_id)
-
-        # Extract intervention_instance_id from URL path
-        path = request.path.rstrip("/")
-        
-        if path.startswith("/interventions/"):
-            # Extract ID from /interventions/{id}/status
-            parts = path.split("/interventions/", 1)[1].split("/")
-            intervention_instance_id = parts[0]
-        else:
-            return {"error": "Invalid path. Expected /interventions/{id}/status"}, 400
-
-        if not intervention_instance_id:
-            return {"error": "Missing intervention_instance_id"}, 400
-
-        # Parse request body
-        if not request.is_json:
-            return {"error": "Request must be JSON"}, 400
-        
-        body = request.get_json()
-        if not body or "status" not in body:
-            return {"error": "Missing 'status' in request body"}, 400
-        
-        new_status = body["status"]
-        if new_status not in ["sent", "dismissed", "failed"]:
-            return {"error": "Invalid status. Must be 'sent', 'dismissed', or 'failed'"}, 400
-
-        # Record status change (append-only for 100% traceability)
-        from datetime import datetime, timezone
-        sent_at = datetime.now(timezone.utc) if new_status == "sent" else None
-        
-        # Get trace_id and user_id from the intervention instance
-        instance = bq_client.get_intervention_instance(intervention_instance_id)
-        if not instance:
-            return {"error": "Intervention instance not found"}, 404
-        
-        trace_id = instance.get("trace_id")
-        if not trace_id:
-            from uuid import uuid4
-            trace_id = str(uuid4())
-            logger.error(f"⚠️ CRITICAL: Missing trace_id in intervention {intervention_instance_id}! Generated: {trace_id}")
-        
-        user_id = instance.get("user_id")
-        if not user_id:
-            return {"error": "Intervention instance missing user_id"}, 500
-        
-        bq_client.record_intervention_status_change(
-            intervention_instance_id=intervention_instance_id,
-            trace_id=trace_id,
-            user_id=user_id,
-            status=new_status,
-            sent_at=sent_at
-        )
-
-        logger.info(f"Recorded status change for intervention {intervention_instance_id}: {new_status}")
-        
-        return {"message": f"Intervention status updated to {new_status}", "intervention_instance_id": intervention_instance_id}, 200
-
-    except Exception as e:
-        logger.error(f"Error updating intervention status: {e}", exc_info=True)
         return {"error": "Internal server error"}, 500
 

@@ -7,9 +7,16 @@
 
 import Foundation
 
+enum ApiError: Error {
+    case unauthorized
+    case httpError(statusCode: Int, message: String)
+    case networkError(Error)
+    case invalidResponse
+    case decodingError(Error)
+}
+
 @MainActor
 class ApiClient {
-    
     private let baseURL: String
     private var idToken: String?
     
@@ -22,107 +29,100 @@ class ApiClient {
         self.idToken = token
     }
     
-    // MARK: - Authenticated Request
-    
-    func authenticatedRequest(
-        path: String,
-        method: String = "GET",
-        body: Data? = nil
-    ) async throws -> (Data, HTTPURLResponse) {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
-            throw ApiError.invalidURL
+    func post<T: Encodable>(path: String, body: T) async throws -> Data {
+        guard let url = URL(string: baseURL + path) else {
+            throw ApiError.invalidResponse
         }
         
         var request = URLRequest(url: url)
-        request.httpMethod = method
+        request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Add authentication header if token is available
+        // Add authorization header if token is available
         if let token = idToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
-        if let body = body {
-            request.httpBody = body
+        // Encode body
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            throw ApiError.decodingError(error)
         }
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Perform request
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ApiError.invalidResponse
+            }
+            
+            // Check status code
+            if httpResponse.statusCode == 401 {
+                throw ApiError.unauthorized
+            }
+            
+            guard (200...299).contains(httpResponse.statusCode) else {
+                let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+                throw ApiError.httpError(statusCode: httpResponse.statusCode, message: message)
+            }
+            
+            return data
+        } catch let error as ApiError {
+            throw error
+        } catch {
+            throw ApiError.networkError(error)
+        }
+    }
+    
+    func get<T: Decodable>(path: String, queryItems: [URLQueryItem]? = nil) async throws -> T {
+        var urlComponents = URLComponents(string: baseURL + path)
+        if let queryItems = queryItems {
+            urlComponents?.queryItems = queryItems
+        }
         
-        guard let httpResponse = response as? HTTPURLResponse else {
+        guard let url = urlComponents?.url else {
             throw ApiError.invalidResponse
         }
         
-        // Handle 401 Unauthorized (token expired)
-        if httpResponse.statusCode == 401 {
-            throw ApiError.unauthorized
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        // Add authorization header if token is available
+        if let token = idToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw ApiError.httpError(statusCode: httpResponse.statusCode, message: errorBody)
-        }
-        
-        return (data, httpResponse)
-    }
-    
-    // MARK: - POST Request
-    
-    func post<T: Encodable>(path: String, body: T) async throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        
-        let bodyData = try encoder.encode(body)
-        let (data, _) = try await authenticatedRequest(path: path, method: "POST", body: bodyData)
-        return data
-    }
-    
-    // MARK: - PATCH Request
-    
-    func patch<T: Encodable>(path: String, body: T) async throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        
-        let bodyData = try encoder.encode(body)
-        let (data, _) = try await authenticatedRequest(path: path, method: "PATCH", body: bodyData)
-        return data
-    }
-    
-    // MARK: - GET Request
-    
-    func get(path: String) async throws -> Data {
-        let (data, _) = try await authenticatedRequest(path: path, method: "GET")
-        return data
-    }
-}
-
-// MARK: - Errors
-
-enum ApiError: LocalizedError {
-    case invalidURL
-    case invalidResponse
-    case unauthorized
-    case httpError(statusCode: Int, message: String)
-    
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL:
-            return "Invalid URL"
-        case .invalidResponse:
-            return "Invalid response from server"
-        case .unauthorized:
-            return "Unauthorized - token expired or invalid"
-        case .httpError(let statusCode, let message):
-            return "HTTP \(statusCode): \(message)"
+        // Perform request
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ApiError.invalidResponse
+            }
+            
+            // Check status code
+            if httpResponse.statusCode == 401 {
+                throw ApiError.unauthorized
+            }
+            
+            guard (200...299).contains(httpResponse.statusCode) else {
+                let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+                throw ApiError.httpError(statusCode: httpResponse.statusCode, message: message)
+            }
+            
+            // Decode response
+            do {
+                return try JSONDecoder().decode(T.self, from: data)
+            } catch {
+                throw ApiError.decodingError(error)
+            }
+        } catch let error as ApiError {
+            throw error
+        } catch {
+            throw ApiError.networkError(error)
         }
     }
 }
-
-
-
-
-
-
-
-
-
-

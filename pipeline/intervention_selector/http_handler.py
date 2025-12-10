@@ -7,7 +7,6 @@ from typing import Dict, Any
 import functions_framework
 
 from src.bigquery_client import BigQueryClient
-from src.catalog import get_intervention
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,8 +51,14 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
         if not instance:
             return {"error": "Intervention instance not found"}, 404
 
-        # Get intervention details from catalog
-        intervention = get_intervention(instance["intervention_key"])
+        # Get intervention details from BigQuery catalog
+        catalog_items = bq_client.get_catalog_for_stress_level(instance["level"])
+        intervention = None
+        for item in catalog_items:
+            if item["intervention_key"] == instance["intervention_key"]:
+                intervention = item
+                break
+
         if not intervention:
             return {"error": "Intervention not found in catalog"}, 500
 

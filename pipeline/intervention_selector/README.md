@@ -27,11 +27,14 @@ This pipeline follows the SHIFT pipeline pattern:
 
 ## Intervention Catalog
 
-Hard-coded interventions in `src/catalog.py`:
+**Data-driven catalog** stored in BigQuery `intervention_catalog` table (deprecated: `src/catalog.py`).
 
+Current interventions:
 - `stress_high_notification`: "Take a Short Reset"
 - `stress_medium_notification`: "Quick Check-in"
 - `stress_low_notification`: "Nice Work"
+
+Catalog is queried dynamically via `get_catalog_for_stress_level()` in `bigquery_client.py`.
 
 ## File Structure
 
@@ -96,13 +99,42 @@ Stores device tokens for push notifications:
 - `platform` (STRING)
 - `updated_at` (TIMESTAMP)
 
+### intervention_catalog
+
+Data-driven catalog of available interventions:
+- `intervention_key` (STRING, REQUIRED)
+- `metric` (STRING, REQUIRED)
+- `level` (STRING, REQUIRED)
+- `surface` (STRING, REQUIRED)
+- `title` (STRING, REQUIRED)
+- `body` (STRING, REQUIRED)
+- `nudge_type` (STRING, NULLABLE)
+- `persona` (STRING, NULLABLE)
+- `enabled` (BOOL, REQUIRED)
+
+### surface_preferences (View)
+
+Aggregates user interaction preferences per surface over last 30 days:
+- `user_id` (STRING)
+- `surface` (STRING)
+- `shown_count` (INT64)
+- `tap_primary_count` (INT64)
+- `dismiss_manual_count` (INT64)
+- `dismiss_timeout_count` (INT64)
+- `engagement_rate` (FLOAT64)
+- `annoyance_rate` (FLOAT64)
+- `ignore_rate` (FLOAT64)
+- `preference_score` (FLOAT64) = engagement_rate - annoyance_rate
+
+**Event type mapping**: iOS sends `"shown"`, `"tapped"`, `"dismissed"` which are automatically mapped to canonical types (`"tap_primary"`, `"dismiss_manual"`) in the view.
+
 ## Flow
 
 **Phase 1 (Current - Polling-based)**:
 1. `state_estimator` creates state estimate → publishes to `state_estimates` Pub/Sub topic
 2. `intervention-selector` (Pub/Sub) receives message
 3. Queries latest state estimate for user from BigQuery
-4. Buckets stress score → Selects intervention
+4. Buckets stress score → Queries catalog for candidates → Applies preference scoring → Selects best intervention
 5. Creates intervention instance in BigQuery (status: "created")
 6. (Optional) Attempts APNs push notification (if configured)
 7. iOS app polls `GET /interventions?user_id=X&status=created` every 60 seconds
@@ -171,12 +203,31 @@ Example response:
 }
 ```
 
+## Adaptive Selection & Preference Modeling
+
+The selector uses **preference-based adaptive selection**:
+
+1. **Catalog lookup**: Queries `intervention_catalog` for enabled interventions matching stress level
+2. **Preference scoring**: For each candidate, looks up user's `surface_preferences`
+3. **Suppression logic**: Surfaces with `shown_count >= 5` AND `annoyance_rate > 0.7` are suppressed (final_score = -1.0)
+4. **Selection**: Chooses candidate with highest `preference_score` (defaults to 0.0 if no preferences exist)
+5. **Rate limiting**: Maximum 3 interventions per 30 minutes per user
+
+**Preference calculation**:
+- `engagement_rate` = `tap_primary_count / shown_count`
+- `annoyance_rate` = `dismiss_manual_count / shown_count`
+- `preference_score` = `engagement_rate - annoyance_rate`
+
+The system learns from user behavior: if a user consistently dismisses interventions from a surface, that surface is automatically suppressed.
+
 ## Error Handling
 
 - If APNs not configured: Status remains "created", logged as info (not an error)
 - If APNs fails: Status remains "created", logged as warning (can retry later)
 - If device token missing: Status remains "created", logged as info
 - If stress is NULL: No intervention selected
+- If all candidates suppressed: No intervention selected (logged as info)
+- If no catalog entries found: No intervention selected (logged as info)
 
 ## Phase 1 Delivery: Polling vs Push
 

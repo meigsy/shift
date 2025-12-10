@@ -1,4 +1,10 @@
-"""Hard-coded intervention catalog for Phase 1."""
+"""Hard-coded intervention catalog for Phase 1.
+
+DEPRECATED: This module is deprecated in favor of the `intervention_catalog` BigQuery table.
+The catalog is now data-driven and managed in BigQuery. This file is kept for reference
+but should not be used in new code. All catalog lookups should use BigQueryClient methods
+instead (e.g., get_catalog_for_stress_level).
+"""
 
 INTERVENTIONS = {
     "stress_high_notification": {
@@ -38,6 +44,7 @@ def get_intervention(intervention_key: str) -> dict | None:
         Intervention dict or None if not found
     """
     return INTERVENTIONS.get(intervention_key)
+
 
 
 
