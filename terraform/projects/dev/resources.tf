@@ -436,3 +436,25 @@ resource "google_pubsub_topic_iam_member" "intervention_selector_pubsub_subscrib
 
 # Cloud Function IAM is handled automatically by gcloud functions deploy
 
+# Intervention Catalog Table
+# Data source to read the SQL file
+data "local_file" "intervention_catalog_sql" {
+  filename = "${path.module}/sql/intervention_catalog.sql"
+}
+
+# BigQuery job to create/replace intervention_catalog table
+resource "google_bigquery_job" "intervention_catalog" {
+  job_id   = "intervention_catalog_${substr(md5(data.local_file.intervention_catalog_sql.content), 0, 8)}"
+  project  = var.project_id
+  location = var.region
+
+  query {
+    query         = data.local_file.intervention_catalog_sql.content
+    use_legacy_sql = false
+  }
+
+  depends_on = [
+    google_bigquery_dataset.shift_data
+  ]
+}
+

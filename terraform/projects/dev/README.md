@@ -29,7 +29,7 @@ This directory contains Terraform configuration for SHIFT pipeline infrastructur
 
 - **BigQuery**:
   - Dataset: `shift_data`
-  - Tables: `watch_events`, `state_estimates`
+  - Tables: `watch_events`, `state_estimates`, `intervention_catalog`
 
 - **Pub/Sub**:
   - Topic: `watch_events`
@@ -96,6 +96,16 @@ terraform output state_estimator_url
 ```
 
 Use `watch_events_url` in your iOS app configuration. Use `state_estimator_url` with ADC bearer token for authenticated access.
+
+### How to Update Intervention Catalog
+
+The intervention catalog is managed as Infrastructure as Code:
+
+1. Edit `sql/intervention_catalog.sql`
+2. Run `terraform apply`
+3. The table is automatically replaced with the new data
+
+The SQL file uses `CREATE OR REPLACE TABLE` to ensure idempotent updates.
 
 ## Apple Sign in with Apple Configuration
 
