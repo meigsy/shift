@@ -262,3 +262,35 @@ This view joins all tables on `trace_id` and provides a chronological narrative 
 - User interaction events (shown, tapped, dismissed)
 
 The view handles NULLs gracefully for backward compatibility with data created before traceability was implemented.
+
+---
+
+## Testing End-to-End Flow
+
+The `test_e2e_hrv.sh` script runs a complete synthetic end-to-end test of the entire pipeline.
+
+### Running the Test
+
+```bash
+./test_e2e_hrv.sh
+```
+
+### What It Tests
+
+The script exercises the full lifecycle:
+
+1. **watch_events** → POSTs synthetic HRV data (HRV=25ms, RestingHR=75bpm) to trigger high stress
+2. **state_estimator** → Polls BigQuery until state estimate appears (stress score ~0.86)
+3. **intervention_selector** → Polls BigQuery until intervention instance is created
+4. **HTTP endpoint** → Fetches intervention details via GET `/interventions?user_id=...&status=created`
+5. **app_interactions** → POSTs three interaction events (shown, tapped, dismissed)
+6. **Verification** → Queries all tables and `trace_full_chain` view to verify full traceability
+
+### Expected Output
+
+The script prints:
+- Step-by-step progress through each pipeline stage
+- BigQuery query results showing data at each stage
+- Full lifecycle summary with trace_id for further investigation
+
+The test uses synthetic data with `trace_id` for complete traceability from HRV reading → intervention → user interaction.

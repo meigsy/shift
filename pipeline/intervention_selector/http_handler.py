@@ -53,7 +53,7 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
             return {"error": "Intervention instance not found"}, 404
 
         # Get intervention details from catalog
-        intervention = get_intervention(instance["intervention_key"])
+        intervention = get_intervention(instance["intervention_key"], bq_client)
         if not intervention:
             return {"error": "Intervention not found in catalog"}, 500
 

@@ -46,8 +46,8 @@ def process_state_estimate(user_id: str, timestamp: str) -> None:
             f"State estimate timestamp mismatch: expected {timestamp}, got {state_estimate['timestamp'].isoformat()}"
         )
 
-    # Select intervention based on stress
-    intervention = select_intervention(state_estimate.get("stress"))
+    # Select intervention based on state estimate and preferences
+    intervention = select_intervention(state_estimate, bq_client, user_id)
     if not intervention:
         logger.info(f"No intervention selected for user {user_id}")
         return
@@ -225,7 +225,7 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
             return {"error": "Intervention instance not found"}, 404
 
         # Get intervention details from catalog
-        intervention = get_intervention(instance["intervention_key"])
+        intervention = get_intervention(instance["intervention_key"], bq_client)
         if not intervention:
             return {"error": "Intervention not found in catalog"}, 500
 

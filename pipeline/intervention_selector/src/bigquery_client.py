@@ -263,6 +263,178 @@ class BigQueryClient:
             logger.error(f"Error querying device token: {e}", exc_info=True)
             raise
 
+    def get_catalog_interventions(self, metric: str, level: str) -> list[dict]:
+        """Get enabled interventions from catalog for a given metric and level.
+
+        Args:
+            metric: Metric name (e.g., "stress")
+            level: Level (e.g., "high", "medium", "low")
+
+        Returns:
+            List of intervention dicts with catalog fields
+        """
+        query = f"""
+            SELECT
+                intervention_key,
+                metric,
+                level,
+                target_level,
+                nudge_type,
+                persona,
+                surface,
+                title,
+                body,
+                enabled
+            FROM `{self.project_id}.{self.dataset_id}.intervention_catalog`
+            WHERE enabled = TRUE
+            AND metric = @metric
+            AND level = @level
+            ORDER BY intervention_key
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("metric", "STRING", metric),
+                bigquery.ScalarQueryParameter("level", "STRING", level),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            interventions = []
+            for row in results:
+                interventions.append({
+                    "intervention_key": row.intervention_key,
+                    "metric": row.metric,
+                    "level": row.level,
+                    "target_level": row.target_level,
+                    "nudge_type": row.nudge_type,
+                    "persona": row.persona,
+                    "surface": row.surface,
+                    "title": row.title,
+                    "body": row.body,
+                    "enabled": row.enabled,
+                })
+
+            return interventions
+        except Exception as e:
+            logger.error(f"Error querying intervention catalog: {e}", exc_info=True)
+            raise
+
+    def get_catalog_intervention_by_key(self, intervention_key: str) -> Optional[dict]:
+        """Get a single intervention from catalog by intervention_key.
+
+        Args:
+            intervention_key: Intervention key
+
+        Returns:
+            Dict with intervention catalog fields or None if not found
+        """
+        query = f"""
+            SELECT
+                intervention_key,
+                metric,
+                level,
+                target_level,
+                nudge_type,
+                persona,
+                surface,
+                title,
+                body,
+                enabled
+            FROM `{self.project_id}.{self.dataset_id}.intervention_catalog`
+            WHERE intervention_key = @intervention_key
+            LIMIT 1
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("intervention_key", "STRING", intervention_key),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            for row in results:
+                return {
+                    "intervention_key": row.intervention_key,
+                    "metric": row.metric,
+                    "level": row.level,
+                    "target_level": row.target_level,
+                    "nudge_type": row.nudge_type,
+                    "persona": row.persona,
+                    "surface": row.surface,
+                    "title": row.title,
+                    "body": row.body,
+                    "enabled": row.enabled,
+                }
+
+            return None
+        except Exception as e:
+            logger.error(f"Error querying intervention catalog by key: {e}", exc_info=True)
+            raise
+
+    def get_surface_preferences(self, user_id: str) -> dict[str, dict]:
+        """Get surface preferences for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Dict keyed by surface name, containing preference stats:
+            {
+                "notification_banner": {
+                    "preference_score": 0.5,
+                    "annoyance_rate": 0.2,
+                    "ignore_rate": 0.1,
+                    "shown_count": 10,
+                    ...
+                },
+                ...
+            }
+        """
+        query = f"""
+            SELECT
+                surface,
+                shown_count,
+                preference_score,
+                annoyance_rate,
+                ignore_rate,
+                engagement_rate
+            FROM `{self.project_id}.{self.dataset_id}.surface_preferences`
+            WHERE user_id = @user_id
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            preferences = {}
+            for row in results:
+                preferences[row.surface] = {
+                    "preference_score": row.preference_score if row.preference_score is not None else 0.0,
+                    "annoyance_rate": row.annoyance_rate if row.annoyance_rate is not None else 0.0,
+                    "ignore_rate": row.ignore_rate if row.ignore_rate is not None else 0.0,
+                    "shown_count": row.shown_count if row.shown_count is not None else 0,
+                    "engagement_rate": row.engagement_rate if row.engagement_rate is not None else 0.0,
+                }
+
+            return preferences
+        except Exception as e:
+            # Graceful degradation: if view doesn't exist or query fails, return empty dict
+            logger.warning(f"Error querying surface preferences (returning empty): {e}")
+            return {}
+
     def get_interventions_for_user(
         self, user_id: str, status: str = "created"
     ) -> list[dict]:
@@ -310,7 +482,7 @@ class BigQueryClient:
             interventions = []
             for row in results:
                 # Get intervention details from catalog
-                intervention = get_intervention(row.intervention_key)
+                intervention = get_intervention(row.intervention_key, self)
                 if not intervention:
                     logger.warning(f"Intervention not found in catalog: {row.intervention_key}")
                     continue
