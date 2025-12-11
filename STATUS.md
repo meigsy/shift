@@ -61,22 +61,30 @@ The core adaptive intervention loop is **fully implemented and operational**. Th
 - `watch_events` (raw HealthKit data)
 - `state_estimates` (calculated state scores)
 - `intervention_instances` (created interventions)
-- `app_interactions` (user interaction events)
+- `app_interactions` (canonical preference signal events from iOS app, future chat)
 - `devices` (device tokens for push notifications)
 - `intervention_catalog` (data-driven catalog)
 
 **Views**:
 - `trace_full_chain` (end-to-end traceability)
-- `surface_preferences` (user preference aggregation)
+- `surface_preferences` (user preference aggregation from `app_interactions`)
 - `v_state_estimator_input_v1` (state estimator input)
 - `v_state_estimator_unprocessed_v1` (unprocessed records)
 
 #### 6. Preference Modeling
-- `surface_preferences` BigQuery view aggregates interactions over last 30 days
-- Calculates: `engagement_rate`, `annoyance_rate`, `preference_score`
-- Event type mapping: iOS events (`"tapped"`, `"dismissed"`) → canonical types (`"tap_primary"`, `"dismiss_manual"`)
+**Canonical preference signals**: `app_interactions` table is the single source of truth for all preference signals:
+- Currently: iOS app writes interaction events directly (`"shown"`, `"tapped"`, `"dismissed"`)
+- Future: Chat will write preference updates via backend endpoint (same table, different channel)
+
+**Preference views**:
+- `surface_preferences`: Aggregates `app_interactions` over last 30 days, computes per-surface metrics (`engagement_rate`, `annoyance_rate`, `preference_score`)
+- Event type mapping: iOS events (`"tapped"`, `"dismissed"`) → canonical types (`"tap_primary"`, `"dismiss_manual"`) in view
 - Suppression: Surfaces with `annoyance_rate > 0.7` and `shown_count >= 5` are suppressed
-- Selector uses preferences to score and filter candidates
+- Selector uses `surface_preferences` for surface-level delivery preferences
+
+**Future**: `user_preferences` view will aggregate preference events (including chat-derived) for cross-surface preferences (tone, modality, timing).
+
+**User profile**: Currently conceptual—derived from events and views, not a dedicated table. Future may add `users`/`user_profile` table for slow-changing attributes (timezone, locale, goals, experiment flags).
 
 ---
 
@@ -85,9 +93,9 @@ The core adaptive intervention loop is **fully implemented and operational**. Th
 **Current Working Flow**:
 1. ✅ iOS app → HealthKit data → `watch_events` pipeline → BigQuery
 2. ✅ `state_estimator` → Processes watch_events → Calculates state → Publishes to Pub/Sub
-3. ✅ `intervention_selector` → Receives Pub/Sub → Queries catalog → Applies preferences → Selects intervention → Creates instance
+3. ✅ `intervention_selector` → Receives Pub/Sub → Queries catalog → Reads `surface_preferences` → Applies preference scoring → Selects intervention → Creates instance
 4. ✅ iOS app → Polls every 60s → Fetches interventions → Displays banner
-5. ✅ User interaction → Recorded to `app_interactions` → Feeds into `surface_preferences` → Influences future selections
+5. ✅ User interaction → Recorded to `app_interactions` (canonical preference signals) → Feeds into `surface_preferences` view → Influences future selections
 
 **Target latency**: 20-30 seconds (currently ~60s due to polling)
 

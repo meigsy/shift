@@ -112,9 +112,17 @@ Data-driven catalog of available interventions:
 - `persona` (STRING, NULLABLE)
 - `enabled` (BOOL, REQUIRED)
 
+### app_interactions (Table)
+
+**Canonical preference signal table** - single source of truth for all preference signals:
+- Stores events from multiple channels (iOS app, future chat) keyed by `user_id`
+- Currently: iOS app writes interaction events directly (`"shown"`, `"tapped"`, `"dismissed"`)
+- Future: Chat will write preference updates via backend endpoint (e.g., `event_type="chat_pref_update"`, `channel="chat"`, with JSON payload)
+- All preference-related signals from both app UI and chat end up in this same fact table
+
 ### surface_preferences (View)
 
-Aggregates user interaction preferences per surface over last 30 days:
+Aggregates `app_interactions` events per surface over last 30 days:
 - `user_id` (STRING)
 - `surface` (STRING)
 - `shown_count` (INT64)
@@ -127,6 +135,8 @@ Aggregates user interaction preferences per surface over last 30 days:
 - `preference_score` (FLOAT64) = engagement_rate - annoyance_rate
 
 **Event type mapping**: iOS sends `"shown"`, `"tapped"`, `"dismissed"` which are automatically mapped to canonical types (`"tap_primary"`, `"dismiss_manual"`) in the view.
+
+**Future**: `user_preferences` view will aggregate preference events (including chat-derived) for cross-surface preferences (tone, modality, timing). Selector will read both `surface_preferences` (surface-level) and `user_preferences` (cross-surface).
 
 ## Flow
 
@@ -208,10 +218,15 @@ Example response:
 The selector uses **preference-based adaptive selection**:
 
 1. **Catalog lookup**: Queries `intervention_catalog` for enabled interventions matching stress level
-2. **Preference scoring**: For each candidate, looks up user's `surface_preferences`
+2. **Preference scoring**: For each candidate, looks up user's `surface_preferences` (aggregated from `app_interactions` events)
 3. **Suppression logic**: Surfaces with `shown_count >= 5` AND `annoyance_rate > 0.7` are suppressed (final_score = -1.0)
 4. **Selection**: Chooses candidate with highest `preference_score` (defaults to 0.0 if no preferences exist)
 5. **Rate limiting**: Maximum 3 interventions per 30 minutes per user
+
+**Preference signal flow**:
+- User interactions → `app_interactions` table (canonical preference signals)
+- `app_interactions` → `surface_preferences` view (aggregated per surface)
+- `surface_preferences` → Selector (surface-level delivery preferences)
 
 **Preference calculation**:
 - `engagement_rate` = `tap_primary_count / shown_count`
@@ -219,6 +234,8 @@ The selector uses **preference-based adaptive selection**:
 - `preference_score` = `engagement_rate - annoyance_rate`
 
 The system learns from user behavior: if a user consistently dismisses interventions from a surface, that surface is automatically suppressed.
+
+**Future**: Selector will also read `user_preferences` view for cross-surface preferences (tone, modality, timing) when available.
 
 ## Error Handling
 

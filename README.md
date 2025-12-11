@@ -33,7 +33,7 @@ WATCH → HealthKit → iPhone → Pub/Sub → State Estimator → State → Sel
 2. **State Estimation** — SQL pipelines infer recovery/readiness/stress/fatigue
 3. **Recommendation** — Preferences + rules select the right intervention
 4. **Delivery** — Push notifications (trigger) + app pull (full content)
-5. **Learning** — Completions/dismissals update preferences
+5. **Learning** — Completions/dismissals update preferences (see [User Preferences and Profile](#user-preferences-and-profile))
 
 ### Principles
 
@@ -105,7 +105,7 @@ Each pipeline is a standalone module with:
 | `watch_events` | iOS app (HealthKit) | BigQuery raw events |
 | `withings_events` | Withings API | BigQuery raw events |
 | `chat_events` | Conversational agent | BigQuery messages |
-| `app_interactions` | iOS app (gestures, reactions) | BigQuery interactions |
+| `app_interactions` | iOS app, chat (via backend) | BigQuery interactions (canonical preference signals) |
 
 ### Processing Pipelines
 
@@ -155,19 +155,71 @@ Each pipeline is a standalone module with:
                                  │
                         ┌─────────────────┐
                         │ app_interactions│
-                        │  (✅ Complete)  │
+                        │  (✅ Canonical  │
+                        │   Preference   │
+                        │   Signals)     │
                         └─────────────────┘
+                                 ▲
+                                 │
+                    ┌────────────┴────────────┐
+                    │                         │
+            ┌───────────────┐      ┌──────────────────┐
+            │   iOS App     │      │  Chat (Future)   │
+            │  (Direct)     │      │  (via Backend)   │
+            └───────────────┘      └──────────────────┘
 ```
 
 **Current Implementation**: 
 - ✅ Full flow working: HealthKit → State → Intervention → Display → Learning
-- ✅ Adaptive feedback loop: User interactions → Preferences → Influence selection
+- ✅ Adaptive feedback loop: User interactions → `app_interactions` → `surface_preferences` → Influence selection
+- ✅ Canonical preference signals: All preference events (iOS app, future chat) flow into `app_interactions`
 - ⚠️ Target latency: 20-30 seconds (currently ~60s due to polling; push notifications will improve)
 
 **Future Enhancements**:
 - Withings integration
 - Chat-based interventions
 - Push notifications (code exists, needs iOS wiring)
+
+---
+
+## User Preferences and Profile
+
+### Preference Signals: `app_interactions` Table
+
+**`app_interactions` is the single source of truth for all preference signals** across the system. It stores events from multiple channels (iOS app UI, chat, system) all keyed by `user_id`.
+
+**Current sources**:
+- **iOS app**: Sends interaction events (`"shown"`, `"tapped"`, `"dismissed"`) directly to BigQuery
+- **Chat** (future): Will write preference updates via backend endpoint (e.g., `event_type="chat_pref_update"`, `channel="chat"`, with JSON payload)
+
+**Key principle**: All preference-related signals from both app UI and chat end up in the same fact table (`app_interactions`), ensuring a unified view of user preferences.
+
+### Preference Views
+
+**`surface_preferences`** (current):
+- Aggregates `app_interactions` events over last 30 days
+- Computes per-surface metrics: `shown_count`, `tap_primary_count`, `dismiss_manual_count`
+- Calculates: `engagement_rate`, `annoyance_rate`, `preference_score`
+- Used by intervention selector for surface-level delivery preferences
+
+**`user_preferences`** (future):
+- Will aggregate preference events (including chat-derived ones) into `(user_id, preference_key, preference_value, confidence, updated_at)` rows
+- Will support higher-level, cross-surface preferences (tone, modality, timing, etc.)
+- Intervention selector will read both `surface_preferences` (surface-level) and `user_preferences` (cross-surface)
+
+### User Profile
+
+**Current design**: There is **no dedicated `user_profile` table**. The "profile" is inferred from events and views keyed by `user_id`:
+- **Behavioral preferences**: Derived from views over event tables (`surface_preferences`, future `user_preferences`)
+- **Static context**: Lives in `devices` table and any future configuration tables
+
+**Future enhancement**: May introduce a small `users` / `user_profile` table for slow-changing, explicit properties:
+- Timezone, locale
+- User goals
+- Experiment flags
+- Notification opt-ins
+
+Until then, the user profile is **conceptual**—a collection of derived views and static context, not a single table.
 
 ---
 
