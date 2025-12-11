@@ -275,27 +275,25 @@ class BigQueryClient:
         Returns:
             List of intervention instance dicts with catalog details merged
         """
+        from src.catalog import get_intervention
+
         query = f"""
             SELECT
-                ii.intervention_instance_id,
-                ii.user_id,
-                ii.trace_id,
-                ii.metric,
-                ii.level,
-                ii.surface,
-                ii.intervention_key,
-                ii.created_at,
-                ii.scheduled_at,
-                ii.sent_at,
-                ii.status,
-                ic.title,
-                ic.body
-            FROM `{self.project_id}.{self.dataset_id}.intervention_instances` ii
-            LEFT JOIN `{self.project_id}.{self.dataset_id}.intervention_catalog` ic
-              ON ii.intervention_key = ic.intervention_key
-            WHERE ii.user_id = @user_id
-              AND ii.status = @status
-            ORDER BY ii.created_at DESC
+                intervention_instance_id,
+                user_id,
+                trace_id,
+                metric,
+                level,
+                surface,
+                intervention_key,
+                created_at,
+                scheduled_at,
+                sent_at,
+                status
+            FROM `{self.project_id}.{self.dataset_id}.intervention_instances`
+            WHERE user_id = @user_id
+            AND status = @status
+            ORDER BY created_at DESC
         """
 
         job_config = bigquery.QueryJobConfig(
@@ -311,16 +309,18 @@ class BigQueryClient:
 
             interventions = []
             for row in results:
+                # Get intervention details from catalog
+                intervention = get_intervention(row.intervention_key)
+                if not intervention:
+                    logger.warning(f"Intervention not found in catalog: {row.intervention_key}")
+                    continue
+
+                # Merge instance data with catalog details
                 # CRITICAL: trace_id is REQUIRED for 100% traceability
                 trace_id = row.trace_id
                 if not trace_id:
                     trace_id = str(uuid4())
                     logger.error(f"⚠️ CRITICAL: Missing trace_id in intervention {row.intervention_instance_id}! Generated: {trace_id}")
-
-                # Skip if catalog entry not found
-                if not row.title or not row.body:
-                    logger.warning(f"Intervention catalog entry not found for key: {row.intervention_key}")
-                    continue
                 
                 intervention_dict = {
                     "intervention_instance_id": row.intervention_instance_id,
@@ -330,8 +330,8 @@ class BigQueryClient:
                     "level": row.level,
                     "surface": row.surface,
                     "intervention_key": row.intervention_key,
-                    "title": row.title,
-                    "body": row.body,
+                    "title": intervention["title"],
+                    "body": intervention["body"],
                     "created_at": row.created_at.isoformat() if row.created_at else None,
                     "scheduled_at": row.scheduled_at.isoformat() if row.scheduled_at else None,
                     "sent_at": row.sent_at.isoformat() if row.sent_at else None,
@@ -342,146 +342,6 @@ class BigQueryClient:
             return interventions
         except Exception as e:
             logger.error(f"Error querying interventions for user: {e}", exc_info=True)
-            raise
-
-    def get_surface_preferences(self, user_id: str) -> dict[str, dict]:
-        """Get surface preferences for a user.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            Dict keyed by surface, each value containing:
-                - preference_score
-                - annoyance_rate
-                - ignore_rate
-                - shown_count
-            Returns empty dict if no preferences found.
-        """
-        query = f"""
-            SELECT
-                surface,
-                preference_score,
-                annoyance_rate,
-                ignore_rate,
-                shown_count
-            FROM `{self.project_id}.{self.dataset_id}.surface_preferences`
-            WHERE user_id = @user_id
-        """
-
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
-            ]
-        )
-
-        try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
-
-            preferences = {}
-            for row in results:
-                preferences[row.surface] = {
-                    "preference_score": float(row.preference_score) if row.preference_score is not None else 0.0,
-                    "annoyance_rate": float(row.annoyance_rate) if row.annoyance_rate is not None else 0.0,
-                    "ignore_rate": float(row.ignore_rate) if row.ignore_rate is not None else 0.0,
-                    "shown_count": int(row.shown_count) if row.shown_count is not None else 0,
-                }
-
-            return preferences
-        except Exception as e:
-            logger.error(f"Error querying surface preferences: {e}", exc_info=True)
-            raise
-
-    def get_catalog_for_stress_level(self, level: str) -> list[dict]:
-        """Get enabled interventions from catalog for a stress level.
-
-        Args:
-            level: Stress level ("high", "medium", "low")
-
-        Returns:
-            List of intervention dicts with:
-                - intervention_key
-                - surface
-                - title
-                - body
-                - metric
-                - level
-        """
-        query = f"""
-            SELECT
-                intervention_key,
-                metric,
-                level,
-                surface,
-                title,
-                body
-            FROM `{self.project_id}.{self.dataset_id}.intervention_catalog`
-            WHERE metric = 'stress'
-              AND level = @level
-              AND enabled = TRUE
-        """
-
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("level", "STRING", level),
-            ]
-        )
-
-        try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
-
-            interventions = []
-            for row in results:
-                interventions.append({
-                    "intervention_key": row.intervention_key,
-                    "metric": row.metric,
-                    "level": row.level,
-                    "surface": row.surface,
-                    "title": row.title,
-                    "body": row.body,
-                })
-
-            return interventions
-        except Exception as e:
-            logger.error(f"Error querying intervention catalog: {e}", exc_info=True)
-            raise
-
-    def get_recent_intervention_count(self, user_id: str, minutes: int = 30) -> int:
-        """Get count of interventions created for a user in the last N minutes.
-
-        Args:
-            user_id: User ID
-            minutes: Number of minutes to look back (default: 30)
-
-        Returns:
-            Count of interventions created in the time window
-        """
-        query = f"""
-            SELECT COUNT(*) as count
-            FROM `{self.project_id}.{self.dataset_id}.intervention_instances`
-            WHERE user_id = @user_id
-              AND created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @minutes MINUTE)
-        """
-
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
-                bigquery.ScalarQueryParameter("minutes", "INT64", minutes),
-            ]
-        )
-
-        try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
-
-            for row in results:
-                return int(row.count)
-
-            return 0
-        except Exception as e:
-            logger.error(f"Error querying recent intervention count: {e}", exc_info=True)
             raise
 
 

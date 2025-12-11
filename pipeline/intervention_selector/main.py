@@ -13,11 +13,8 @@ import functions_framework
 
 from src.bigquery_client import BigQueryClient
 from src.selector import select_intervention
+from src.catalog import get_intervention
 from src.apns import send_push_notification
-
-# Rate limiting constants
-RATE_LIMIT_MINUTES = 30
-RATE_LIMIT_MAX_COUNT = 3
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,19 +46,10 @@ def process_state_estimate(user_id: str, timestamp: str) -> None:
             f"State estimate timestamp mismatch: expected {timestamp}, got {state_estimate['timestamp'].isoformat()}"
         )
 
-    # Select intervention based on stress, catalog, and preferences
-    intervention = select_intervention(state_estimate, bq_client)
+    # Select intervention based on stress
+    intervention = select_intervention(state_estimate.get("stress"))
     if not intervention:
         logger.info(f"No intervention selected for user {user_id}")
-        return
-
-    # Rate limiting: check recent intervention count
-    recent_count = bq_client.get_recent_intervention_count(user_id, minutes=RATE_LIMIT_MINUTES)
-    if recent_count >= RATE_LIMIT_MAX_COUNT:
-        logger.info(
-            f"Rate limit exceeded for user {user_id}: {recent_count} interventions "
-            f"in last {RATE_LIMIT_MINUTES} minutes (max: {RATE_LIMIT_MAX_COUNT}). Skipping intervention."
-        )
         return
 
     # Create intervention instance
@@ -236,14 +224,8 @@ def get_intervention(request) -> tuple[Dict[str, Any], int]:
         if not instance:
             return {"error": "Intervention instance not found"}, 404
 
-        # Get intervention details from BigQuery catalog
-        catalog_items = bq_client.get_catalog_for_stress_level(instance["level"])
-        intervention = None
-        for item in catalog_items:
-            if item["intervention_key"] == instance["intervention_key"]:
-                intervention = item
-                break
-
+        # Get intervention details from catalog
+        intervention = get_intervention(instance["intervention_key"])
         if not intervention:
             return {"error": "Intervention not found in catalog"}, 500
 

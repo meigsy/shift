@@ -219,10 +219,7 @@ async def app_interactions(
     """
     Receive app interaction events from iOS app.
     
-    Tracks user interactions with interventions. iOS sends: 'shown', 'tapped', 'dismissed'.
-    The surface_preferences view automatically maps these to canonical preference modeling
-    types ('tap_primary', 'dismiss_manual') for preference scoring.
-    
+    Tracks user interactions with interventions (shown, tapped, dismissed).
     Stores events in BigQuery for traceability analysis.
     """
     try:

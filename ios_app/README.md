@@ -163,3 +163,4 @@ The app observes HealthKit updates and syncs data in the background:
 
 
 
+

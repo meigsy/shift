@@ -33,7 +33,7 @@ WATCH → HealthKit → iPhone → Pub/Sub → State Estimator → State → Sel
 2. **State Estimation** — SQL pipelines infer recovery/readiness/stress/fatigue
 3. **Recommendation** — Preferences + rules select the right intervention
 4. **Delivery** — Push notifications (trigger) + app pull (full content)
-5. **Learning** — Completions/dismissals update preferences (see [User Preferences and Profile](#user-preferences-and-profile))
+5. **Learning** — Completions/dismissals update preferences
 
 ### Principles
 
@@ -67,8 +67,10 @@ shift/
 │   │   └── → stress, recovery, fatigue, readiness
 │   ├── withings_events/   # Withings API → BigQuery (future)
 │   ├── chat_events/       # Conversation → BigQuery (future)
-│   ├── intervention_selector/    # ✅ Adaptive selector with preference modeling
-│   └── [app_interactions written directly by iOS app to BigQuery]
+│   ├── app_interactions/  # Surface reactions → BigQuery (future)
+│   ├── interaction_preferences/  # → user preferences from behavior (future)
+│   ├── intervention_selector/    # → picks & delivers interventions (future)
+│   └── intervention_catalog/     # Google Sheet sync (reference data) (future)
 ├── terraform/             # GCP infrastructure
 │   ├── projects/dev/
 │   └── projects/prod/
@@ -105,27 +107,21 @@ Each pipeline is a standalone module with:
 | `watch_events` | iOS app (HealthKit) | BigQuery raw events |
 | `withings_events` | Withings API | BigQuery raw events |
 | `chat_events` | Conversational agent | BigQuery messages |
-| `app_interactions` | iOS app, chat (via backend) | BigQuery interactions (canonical preference signals) |
+| `app_interactions` | iOS app (gestures, reactions) | BigQuery interactions |
 
 ### Processing Pipelines
 
-| Pipeline | Input | Output | Status |
-|----------|-------|--------|--------|
-| `state_estimator` | All events | stress, recovery, fatigue, readiness scores | ✅ Complete |
-| `intervention_selector` | State + preferences + catalog | Selected intervention(s) with adaptive learning | ✅ Complete |
-
-**Adaptive Features**:
-- Preference-based scoring (learns from user interactions)
-- Suppression logic (high annoyance surfaces automatically suppressed)
-- Rate limiting (3 interventions per 30 minutes per user)
-- Data-driven catalog (BigQuery `intervention_catalog` table)
+| Pipeline | Input | Output |
+|----------|-------|--------|
+| `state_estimator` | All events | stress, recovery, fatigue, readiness scores |
+| `interaction_preferences` | app_interactions, chat_events | User preference model |
+| `intervention_selector` | State + preferences + catalog | Selected intervention(s) |
 
 ### Reference Data
 
-| Resource | Source | Output | Status |
-|----------|--------|--------|--------|
-| `intervention_catalog` | BigQuery table (manually loaded) | BigQuery reference table | ✅ Complete |
-| `surface_preferences` | BigQuery view (aggregates `app_interactions`) | User preference scores per surface | ✅ Complete |
+| Pipeline | Source | Output |
+|----------|--------|--------|
+| `intervention_catalog` | Google Sheet (SME-edited) | BigQuery reference table |
 
 ---
 
@@ -134,111 +130,34 @@ Each pipeline is a standalone module with:
 ```
 ┌─────────────────┐
 │  watch_events   │────▶┐
-│  (✅ Complete)  │     │
 └─────────────────┘     │
                         │
 ┌─────────────────┐     │     ┌─────────────────┐     ┌──────────────────────┐
-│ withings_events │────▶├────▶│ state_estimator │────▶│ intervention_selector│────▶ iOS App
-│  (Future)       │     │     │  (✅ Complete)  │     │  (✅ Complete)       │     (Polling)
+│ withings_events │────▶├────▶│ state_estimator │────▶│ intervention_selector│────▶ Push ────▶ iOS
 └─────────────────┘     │     └─────────────────┘     └──────────────────────┘
                         │                                       ▲
 ┌─────────────────┐     │                                       │
 │   chat_events   │────▶┘                                       │
-│   (Future)      │                                             │
-└─────────────────┘                                             │
-                        ┌────────────────────────┐              │
-                        │  surface_preferences   │◀─────────────┘
-                        │      (View)            │
-                        │  (✅ Preference Loop)  │
-                        └────────────────────────┘
-                                 ▲
-                                 │
-                        ┌─────────────────┐
-                        │ app_interactions│
-                        │  (✅ Canonical  │
-                        │   Preference   │
-                        │   Signals)     │
-                        └─────────────────┘
-                                 ▲
-                                 │
-                    ┌────────────┴────────────┐
-                    │                         │
-            ┌───────────────┐      ┌──────────────────┐
-            │   iOS App     │      │  Chat (Future)   │
-            │  (Direct)     │      │  (via Backend)   │
-            └───────────────┘      └──────────────────┘
+└─────────────────┘────▶┐                                       │
+                        │                                       │
+┌─────────────────┐     │     ┌────────────────────────┐        │
+│ app_interactions│────▶┘────▶│interaction_preferences │────────┘
+└─────────────────┘           └────────────────────────┘
 ```
 
-**Current Implementation**: 
-- ✅ Full flow working: HealthKit → State → Intervention → Display → Learning
-- ✅ Adaptive feedback loop: User interactions → `app_interactions` → `surface_preferences` → Influence selection
-- ✅ Canonical preference signals: All preference events (iOS app, future chat) flow into `app_interactions`
-- ⚠️ Target latency: 20-30 seconds (currently ~60s due to polling; push notifications will improve)
-
-**Future Enhancements**:
-- Withings integration
-- Chat-based interventions
-- Push notifications (code exists, needs iOS wiring)
-
----
-
-## User Preferences and Profile
-
-### Preference Signals: `app_interactions` Table
-
-**`app_interactions` is the single source of truth for all preference signals** across the system. It stores events from multiple channels (iOS app UI, chat, system) all keyed by `user_id`.
-
-**Current sources**:
-- **iOS app**: Sends interaction events (`"shown"`, `"tapped"`, `"dismissed"`) directly to BigQuery
-- **Chat** (future): Will write preference updates via backend endpoint (e.g., `event_type="chat_pref_update"`, `channel="chat"`, with JSON payload)
-
-**Key principle**: All preference-related signals from both app UI and chat end up in the same fact table (`app_interactions`), ensuring a unified view of user preferences.
-
-### Preference Views
-
-**`surface_preferences`** (current):
-- Aggregates `app_interactions` events over last 30 days
-- Computes per-surface metrics: `shown_count`, `tap_primary_count`, `dismiss_manual_count`
-- Calculates: `engagement_rate`, `annoyance_rate`, `preference_score`
-- Used by intervention selector for surface-level delivery preferences
-
-**`user_preferences`** (future):
-- Will aggregate preference events (including chat-derived ones) into `(user_id, preference_key, preference_value, confidence, updated_at)` rows
-- Will support higher-level, cross-surface preferences (tone, modality, timing, etc.)
-- Intervention selector will read both `surface_preferences` (surface-level) and `user_preferences` (cross-surface)
-
-### User Profile
-
-**Current design**: There is **no dedicated `user_profile` table**. The "profile" is inferred from events and views keyed by `user_id`:
-- **Behavioral preferences**: Derived from views over event tables (`surface_preferences`, future `user_preferences`)
-- **Static context**: Lives in `devices` table and any future configuration tables
-
-**Future enhancement**: May introduce a small `users` / `user_profile` table for slow-changing, explicit properties:
-- Timezone, locale
-- User goals
-- Experiment flags
-- Notification opt-ins
-
-Until then, the user profile is **conceptual**—a collection of derived views and static context, not a single table.
+Target latency: **20–30 seconds** end-to-end.
 
 ---
 
 ## Delivery Model
 
-**Current (Phase 1 - Polling-based)**:
-1. `intervention_selector` picks intervention → Creates instance in BigQuery
-2. iOS app polls `GET /interventions?user_id=X&status=created` every 60 seconds
-3. iOS app fetches and displays intervention banner
-4. User interaction → `app_interactions` → `surface_preferences` → influences future selections
-
-**Future (Push-based)**:
-1. `intervention_selector` picks intervention → Creates instance
-2. Backend sends push notification via APNs (code exists, optional)
+1. `intervention_selector` picks intervention
+2. Backend sends push notification via APNs
 3. iOS wakes, fetches full intervention details
 4. iOS renders the intervention
 5. User interaction → `app_interactions` → learning
 
-**Note**: Push notifications are optional. Polling works without Apple Developer account setup.
+Push is the trigger; app pulls full payload.
 
 ---
 
@@ -311,12 +230,6 @@ Each pipeline has Terraform for:
 - Org lien on prod
 - Budget alerts
 - IAM via Terraform
-
----
-
-## Project Status
-
-See [STATUS.md](STATUS.md) for detailed implementation status, next steps, and known issues.
 
 ---
 
