@@ -77,3 +77,10 @@ dist/
 
 # Deprecated code (keeping for reference)
 _deprecated/
+
+# Backup files
+*.bak
+*_backup
+*_fixed.sql
+*_query.sql
+*_old

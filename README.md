@@ -65,12 +65,7 @@ shift/
 │   │   └── User management
 │   ├── state_estimator/   # State estimation pipeline
 │   │   └── → stress, recovery, fatigue, readiness
-│   ├── withings_events/   # Withings API → BigQuery (future)
-│   ├── chat_events/       # Conversation → BigQuery (future)
-│   ├── app_interactions/  # Surface reactions → BigQuery (future)
-│   ├── interaction_preferences/  # → user preferences from behavior (future)
-│   ├── intervention_selector/    # → picks & delivers interventions (future)
-│   └── intervention_catalog/     # Google Sheet sync (reference data) (future)
+│   └── intervention_selector/   # Cloud Function: Intervention selection (✅ operational)
 ├── terraform/             # GCP infrastructure
 │   ├── projects/dev/
 │   └── projects/prod/
@@ -282,7 +277,7 @@ The script exercises the full lifecycle:
 1. **watch_events** → POSTs synthetic HRV data (HRV=25ms, RestingHR=75bpm) to trigger high stress
 2. **state_estimator** → Polls BigQuery until state estimate appears (stress score ~0.86)
 3. **intervention_selector** → Polls BigQuery until intervention instance is created
-4. **HTTP endpoint** → Fetches intervention details via GET `/interventions?user_id=...&status=created`
+4. **BigQuery query** → Queries `intervention_instances` table directly for intervention details
 5. **app_interactions** → POSTs three interaction events (shown, tapped, dismissed)
 6. **Verification** → Queries all tables and `trace_full_chain` view to verify full traceability
 

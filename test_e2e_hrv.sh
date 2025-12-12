@@ -9,7 +9,6 @@ DATASET="shift_data"
 # Note: Mock tokens map to "mock-user-default" in watch_events service
 TEST_USER_ID="mock-user-default"
 WATCH_EVENTS_URL="https://watch-events-meqmyk4w5q-uc.a.run.app"
-INTERVENTION_SELECTOR_URL="https://us-central1-shift-dev-478422.cloudfunctions.net/intervention-selector-http"
 
 # Generate trace_id for full traceability
 TRACE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
@@ -22,7 +21,6 @@ echo ""
 echo "Test User ID: $TEST_USER_ID"
 echo "Trace ID: $TRACE_ID"
 echo "Watch Events URL: $WATCH_EVENTS_URL"
-echo "Intervention Selector URL: $INTERVENTION_SELECTOR_URL"
 echo ""
 
 # Step 1: POST synthetic HRV-heavy payload to /watch_events endpoint
@@ -207,42 +205,52 @@ if [ "$INTERVENTION_FOUND" = false ]; then
   exit 1
 fi
 
-# Step 4: Call HTTP endpoint to get intervention details
+# Step 4: Query BigQuery directly for intervention details
 echo ""
-echo "📱 Step 4: Fetching intervention details from HTTP endpoint..."
+echo "📱 Step 4: Fetching intervention details from BigQuery..."
 echo ""
 
-INTERVENTION_RESPONSE=$(curl -s -w "\n%{http_code}" \
-  -X GET \
-  -H "Authorization: Bearer $MOCK_TOKEN" \
-  "$INTERVENTION_SELECTOR_URL/interventions?user_id=$TEST_USER_ID&status=created")
+INTERVENTION_DATA=$(bq query --use_legacy_sql=false --project_id="$PROJECT" --format=json --quiet <<EOF
+SELECT
+  intervention_instance_id,
+  trace_id,
+  surface,
+  intervention_key,
+  metric,
+  level,
+  status,
+  created_at
+FROM \`$PROJECT.$DATASET.intervention_instances\`
+WHERE user_id = '$TEST_USER_ID'
+  AND trace_id = '$TRACE_ID'
+  AND status = 'created'
+ORDER BY created_at DESC
+LIMIT 1
+EOF
+)
 
-HTTP_CODE=$(echo "$INTERVENTION_RESPONSE" | tail -n1)
-BODY=$(echo "$INTERVENTION_RESPONSE" | sed '$d')
-
-if [ "$HTTP_CODE" -eq 200 ]; then
-  echo "✅ Intervention details retrieved"
-  echo "$BODY" | jq '.'
-  
-  # Extract intervention_instance_id, trace_id, surface from response
-  INTERVENTION_INSTANCE_ID=$(echo "$BODY" | jq -r '.interventions[0].intervention_instance_id // empty')
-  EXTRACTED_TRACE_ID=$(echo "$BODY" | jq -r '.interventions[0].trace_id // empty')
-  SURFACE=$(echo "$BODY" | jq -r '.interventions[0].surface // empty')
-  
-  if [ -z "$INTERVENTION_INSTANCE_ID" ]; then
-    echo "❌ Failed to extract intervention_instance_id from response"
-    exit 1
-  fi
-  
-  echo ""
-  echo "   Intervention Instance ID: $INTERVENTION_INSTANCE_ID"
-  echo "   Trace ID: $EXTRACTED_TRACE_ID"
-  echo "   Surface: $SURFACE"
-else
-  echo "❌ Failed to get intervention details (HTTP $HTTP_CODE)"
-  echo "$BODY"
+if [ -z "$INTERVENTION_DATA" ] || [ "$INTERVENTION_DATA" = "[]" ]; then
+  echo "❌ Failed to retrieve intervention details from BigQuery"
   exit 1
 fi
+
+echo "✅ Intervention details retrieved"
+echo "$INTERVENTION_DATA" | jq '.'
+
+# Extract intervention_instance_id, trace_id, surface from BigQuery response
+INTERVENTION_INSTANCE_ID=$(echo "$INTERVENTION_DATA" | jq -r '.[0].intervention_instance_id // empty')
+EXTRACTED_TRACE_ID=$(echo "$INTERVENTION_DATA" | jq -r '.[0].trace_id // empty')
+SURFACE=$(echo "$INTERVENTION_DATA" | jq -r '.[0].surface // empty')
+
+if [ -z "$INTERVENTION_INSTANCE_ID" ]; then
+  echo "❌ Failed to extract intervention_instance_id from BigQuery response"
+  exit 1
+fi
+
+echo ""
+echo "   Intervention Instance ID: $INTERVENTION_INSTANCE_ID"
+echo "   Trace ID: $EXTRACTED_TRACE_ID"
+echo "   Surface: $SURFACE"
 
 # Step 5: POST interaction events to /app_interactions
 echo ""
