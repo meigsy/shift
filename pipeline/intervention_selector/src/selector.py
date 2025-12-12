@@ -74,9 +74,14 @@ def select_intervention(
         annoyance_rate = surface_pref.get("annoyance_rate", 0.0)
         shown_count = surface_pref.get("shown_count", 0)
 
-        # Suppression rule: if shown_count >= 5 AND annoyance_rate > 0.7, suppress
-        if shown_count >= 5 and annoyance_rate > 0.7:
-            logger.info(f"Suppressing surface '{surface}' for user {user_id}: shown_count={shown_count}, annoyance_rate={annoyance_rate}")
+        # Cap annoyance_rate to prevent 100% suppression (allow recovery over time)
+        # Even if user has 100% dismissal rate, cap at 90% for suppression purposes
+        # This ensures surfaces can recover as user preferences evolve
+        annoyance_rate_capped = min(annoyance_rate, 0.9)
+
+        # Suppression rule: if shown_count >= 5 AND capped annoyance_rate > 0.7, suppress
+        if shown_count >= 5 and annoyance_rate_capped > 0.7:
+            logger.info(f"Suppressing surface '{surface}' for user {user_id}: shown_count={shown_count}, annoyance_rate={annoyance_rate} (capped at {annoyance_rate_capped})")
             continue
 
         # Calculate final score
