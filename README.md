@@ -17,6 +17,8 @@ SHIFT is a **personal health operating system**:
 
 **Flow**: Data → State → Intervention → Delivery → Learning → Refinement
 
+**Status**: ✅ End-to-end pipeline operational. All infrastructure in Terraform. See `DEVELOPMENT.md` for progress tracking.
+
 ---
 
 ## Architecture
