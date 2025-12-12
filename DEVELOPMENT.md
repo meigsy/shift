@@ -12,4 +12,3 @@
 - Push notifications (APNs) - code exists, needs configuration
 - Production environment setup
 - Token refresh for iOS app
-- Multi-metric intervention selection
