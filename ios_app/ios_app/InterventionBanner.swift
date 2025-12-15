@@ -12,9 +12,11 @@ struct InterventionBanner: View {
     let interactionService: InteractionService?
     let userId: String
     let onDismiss: () -> Void
+    var onTap: (() -> Void)? = nil
     
     @State private var isVisible = false
     @State private var dragOffset: CGFloat = 0
+    @State private var hasLoggedShown = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -38,12 +40,12 @@ struct InterventionBanner: View {
                 Spacer()
                 
                 Button(action: {
-                    // Record "tapped" interaction
+                    // Record "dismissed" interaction
                     if let interactionService = interactionService {
                         Task {
                             try? await interactionService.recordInteraction(
                                 intervention: intervention,
-                                eventType: "tapped",
+                                eventType: "dismissed",
                                 userId: userId
                             )
                         }
@@ -56,7 +58,14 @@ struct InterventionBanner: View {
                 }
             }
             .padding()
-            .background(Color(.systemBackground))
+            .background(
+                Color(.systemBackground)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Banner tap opens detail; does NOT log "tapped" (only "Try it" button does)
+                        onTap?()
+                    }
+            )
             .cornerRadius(12)
             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
             .padding(.horizontal, 16)
@@ -101,6 +110,18 @@ struct InterventionBanner: View {
         .onAppear {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                 isVisible = true
+            }
+            
+            // Log "shown" once per banner appearance (deduplicated)
+            if !hasLoggedShown, let interactionService = interactionService {
+                hasLoggedShown = true
+                Task {
+                    try? await interactionService.recordInteraction(
+                        intervention: intervention,
+                        eventType: "shown",
+                        userId: userId
+                    )
+                }
             }
             
             // Auto-dismiss after 30 seconds (increased for easier testing)

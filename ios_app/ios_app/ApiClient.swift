@@ -39,13 +39,83 @@ class ApiClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
+        // #region agent log
+        let logData: [String: Any] = [
+            "sessionId": "debug-session",
+            "runId": "initial",
+            "hypothesisId": "C",
+            "location": "ApiClient.swift:28",
+            "message": "Starting URLSession request",
+            "data": [
+                "url": url.absoluteString,
+                "hasToken": idToken != nil
+            ],
+            "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+        ]
+        if let jsonData = try? JSONSerialization.data(withJSONObject: logData),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            if let logFile = FileHandle(forWritingAtPath: "/Users/sly/dev/shift/.cursor/debug.log") {
+                try? logFile.seekToEnd()
+                logFile.write((jsonString + "\n").data(using: .utf8)!)
+                try? logFile.close()
+            } else {
+                try? (jsonString + "\n").write(toFile: "/Users/sly/dev/shift/.cursor/debug.log", atomically: false, encoding: .utf8)
+            }
+        }
+        // #endregion
+        
         // Perform request
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                // #region agent log
+                let logData2: [String: Any] = [
+                    "sessionId": "debug-session",
+                    "runId": "initial",
+                    "hypothesisId": "C",
+                    "location": "ApiClient.swift:46",
+                    "message": "Invalid response type (not HTTPURLResponse)",
+                    "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+                ]
+                if let jsonData = try? JSONSerialization.data(withJSONObject: logData2),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    if let logFile = FileHandle(forWritingAtPath: "/Users/sly/dev/shift/.cursor/debug.log") {
+                        try? logFile.seekToEnd()
+                        logFile.write((jsonString + "\n").data(using: .utf8)!)
+                        try? logFile.close()
+                    } else {
+                        try? (jsonString + "\n").write(toFile: "/Users/sly/dev/shift/.cursor/debug.log", atomically: false, encoding: .utf8)
+                    }
+                }
+                // #endregion
                 throw ApiError.httpError(statusCode: 0, message: "Invalid response type")
             }
+            
+            // #region agent log
+            let logData3: [String: Any] = [
+                "sessionId": "debug-session",
+                "runId": "initial",
+                "hypothesisId": "C",
+                "location": "ApiClient.swift:51",
+                "message": "Received HTTP response",
+                "data": [
+                    "statusCode": httpResponse.statusCode,
+                    "dataLength": data.count
+                ],
+                "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: logData3),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                if let logFile = FileHandle(forWritingAtPath: "/Users/sly/dev/shift/.cursor/debug.log") {
+                    try? logFile.seekToEnd()
+                    logFile.write((jsonString + "\n").data(using: .utf8)!)
+                    try? logFile.close()
+                } else {
+                    try? (jsonString + "\n").write(toFile: "/Users/sly/dev/shift/.cursor/debug.log", atomically: false, encoding: .utf8)
+                }
+            }
+            // #endregion
             
             // Handle HTTP status codes
             if httpResponse.statusCode == 401 {
@@ -54,6 +124,30 @@ class ApiClient {
             
             if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
                 let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+                // #region agent log
+                let logData4: [String: Any] = [
+                    "sessionId": "debug-session",
+                    "runId": "initial",
+                    "hypothesisId": "C",
+                    "location": "ApiClient.swift:55",
+                    "message": "HTTP error status code",
+                    "data": [
+                        "statusCode": httpResponse.statusCode,
+                        "message": message
+                    ],
+                    "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+                ]
+                if let jsonData = try? JSONSerialization.data(withJSONObject: logData4),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    if let logFile = FileHandle(forWritingAtPath: "/Users/sly/dev/shift/.cursor/debug.log") {
+                        try? logFile.seekToEnd()
+                        logFile.write((jsonString + "\n").data(using: .utf8)!)
+                        try? logFile.close()
+                    } else {
+                        try? (jsonString + "\n").write(toFile: "/Users/sly/dev/shift/.cursor/debug.log", atomically: false, encoding: .utf8)
+                    }
+                }
+                // #endregion
                 throw ApiError.httpError(statusCode: httpResponse.statusCode, message: message)
             }
             
@@ -61,6 +155,30 @@ class ApiClient {
         } catch let error as ApiError {
             throw error
         } catch {
+            // #region agent log
+            let logData5: [String: Any] = [
+                "sessionId": "debug-session",
+                "runId": "initial",
+                "hypothesisId": "C",
+                "location": "ApiClient.swift:64",
+                "message": "Network/URLSession error",
+                "data": [
+                    "error": error.localizedDescription,
+                    "errorType": String(describing: type(of: error))
+                ],
+                "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: logData5),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                if let logFile = FileHandle(forWritingAtPath: "/Users/sly/dev/shift/.cursor/debug.log") {
+                    try? logFile.seekToEnd()
+                    logFile.write((jsonString + "\n").data(using: .utf8)!)
+                    try? logFile.close()
+                } else {
+                    try? (jsonString + "\n").write(toFile: "/Users/sly/dev/shift/.cursor/debug.log", atomically: false, encoding: .utf8)
+                }
+            }
+            // #endregion
             throw ApiError.httpError(statusCode: 0, message: error.localizedDescription)
         }
     }

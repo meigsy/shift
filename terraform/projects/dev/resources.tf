@@ -154,6 +154,13 @@ resource "google_pubsub_topic_iam_member" "watch_events_pubsub" {
   member = "serviceAccount:${google_service_account.watch_events.email}"
 }
 
+# watch_events needs bigquery.jobUser to run /context queries
+resource "google_project_iam_member" "watch_events_bq_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.watch_events.email}"
+}
+
 resource "google_project_iam_member" "state_estimator_bq_job_user" {
   project = var.project_id
   role    = "roles/bigquery.jobUser"

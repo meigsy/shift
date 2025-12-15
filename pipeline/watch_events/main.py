@@ -19,6 +19,9 @@ from auth_identity_platform import verify_identity_platform_token, get_user_from
 from users_repo import users_repo
 from services.ingestion import process_watch_events
 from uuid import uuid4
+import os
+
+from context_repository import ContextRepository
 
 app = FastAPI(
     title="SHIFT Backend API",
@@ -281,6 +284,99 @@ async def app_interactions(
     except Exception as e:
         print(f"❌ Interaction ingestion error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process interaction event: {str(e)}")
+
+
+@app.get("/context")
+async def get_context(
+        current_user: User = Depends(get_current_user)
+):
+    """Read-only aggregator endpoint for Home screen context.
+
+    Returns:
+        {
+          "state_estimate": { ... } | null,
+          "interventions": [ { ... }, ... ]
+        }
+
+    This endpoint is PURE READ:
+    - Does not run the intervention selector
+    - Does not create or update any rows
+    """
+    try:
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            raise HTTPException(
+                status_code=500,
+                detail="GCP_PROJECT_ID not configured"
+            )
+
+        dataset_id = os.getenv("BQ_DATASET_ID", "shift_data")
+        repo = ContextRepository(project_id=project_id, dataset_id=dataset_id)
+
+        user_id = current_user.user_id
+
+        # Latest state estimate (optional)
+        state_estimate = repo.get_latest_state_estimate(user_id=user_id)
+
+        # All created intervention instances for this user
+        instances = repo.get_created_interventions_for_user(user_id=user_id)
+
+        # Look up catalog details for all intervention_keys
+        keys = list({instance["intervention_key"] for instance in instances})
+        catalog_by_key = repo.get_catalog_for_keys(keys)
+
+        # Build denormalized interventions payload
+        interventions = []
+        for instance in instances:
+            catalog = catalog_by_key.get(instance["intervention_key"])
+            if not catalog:
+                # If catalog entry is missing, skip but keep endpoint robust
+                continue
+
+            # Ensure trace_id is present for 100% traceability; if missing, leave
+            # as-is here (selector / pipelines are responsible for generating it).
+            interventions.append(
+                {
+                    "intervention_instance_id": instance["intervention_instance_id"],
+                    "user_id": instance["user_id"],
+                    "trace_id": instance["trace_id"],
+                    "metric": instance["metric"],
+                    "level": instance["level"],
+                    "surface": instance["surface"],
+                    "intervention_key": instance["intervention_key"],
+                    "title": catalog["title"],
+                    "body": catalog["body"],
+                    "created_at": instance["created_at"].isoformat() if instance["created_at"] else None,
+                    "scheduled_at": instance["scheduled_at"].isoformat() if instance["scheduled_at"] else None,
+                    "sent_at": instance["sent_at"].isoformat() if instance["sent_at"] else None,
+                    "status": instance["status"],
+                }
+            )
+
+        # Serialize state_estimate to JSON-friendly form
+        state_payload = None
+        if state_estimate is not None:
+            state_payload = {
+                "user_id": state_estimate["user_id"],
+                "timestamp": state_estimate["timestamp"].isoformat()
+                if isinstance(state_estimate["timestamp"], datetime)
+                else state_estimate["timestamp"],
+                "trace_id": state_estimate["trace_id"],
+                "recovery": state_estimate["recovery"],
+                "readiness": state_estimate["readiness"],
+                "stress": state_estimate["stress"],
+                "fatigue": state_estimate["fatigue"],
+            }
+
+        return {
+            "state_estimate": state_payload,
+            "interventions": interventions,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Context endpoint error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch context payload")
 
 
 if __name__ == "__main__":

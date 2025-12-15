@@ -156,6 +156,111 @@ Target latency: **20–30 seconds** end-to-end.
 
 Push is the trigger; app pulls full payload.
 
+### `/context` Endpoint
+
+**Endpoint**: `GET /context` (read-only, authenticated)
+
+**Purpose**: Single aggregator endpoint that returns all data needed by the Home screen in one call.
+
+**Authentication**: User identity is derived **only from the auth token** (Bearer token in Authorization header). No `user_id` query parameter is required or trusted.
+
+**Returns**:
+- `state_estimate` (nullable): Latest state estimate with `recovery`, `readiness`, `stress`, `fatigue`, `timestamp`, `trace_id`
+- `interventions`: Array of denormalized intervention instances with `status="created"`, including catalog content (`title`, `body`, etc.)
+
+**Constraints**:
+- **Pure read**: Does not run the intervention selector, does not create or update any rows
+- **No side effects**: Only queries `state_estimates`, `intervention_instances`, and `intervention_catalog` tables
+- Interventions are ordered by `created_at DESC` for deterministic Home tile ordering
+
+### Interaction Event Semantics
+
+All user interactions are logged implicitly via `POST /app_interactions` with the following event types:
+
+- **`shown`**: Intervention was displayed to the user
+  - Logged **at most once per (intervention_instance_id, surface)** combination
+  - Deduplicated client-side to prevent re-logging on Home re-render, navigation back, or pull-to-refresh
+  - Surfaces: `home_tile`, `banner`, `notification`
+
+- **`tapped`**: User explicitly accepted the intervention (primary CTA)
+  - Only logged when user taps "Try it" button in Intervention Detail screen
+  - **NOT** logged for banner/tile taps that only open detail (those are navigation, not acceptance)
+
+- **`dismissed`**: User dismissed or skipped the intervention
+  - Logged when user:
+    - Taps "Not now" or "Skip" in Intervention Detail
+    - Dismisses banner via X button or swipe gesture
+    - Banner auto-dismisses after timeout
+
+**No explicit feedback**: No ratings, surveys, or "Was this helpful?" prompts. All learning is implicit from interaction patterns.
+
+---
+
+## App UX Surfaces (MVP)
+
+### `/context` endpoint (read-only)
+
+The iOS app uses a single read-only aggregator endpoint from the `watch_events` service:
+
+- `GET /context`
+  - **Authentication**: User identity is derived **only from the auth token** (Bearer token in Authorization header). No `user_id` query parameter is required or trusted.
+  - **Pure read**: does not run the selector and does not mutate any tables.
+  - Reads from:
+    - `state_estimates` — latest row for the current user (optional), ordered by `timestamp DESC`.
+    - `intervention_instances` — all rows for the user with `status = "created"`, ordered by `created_at DESC` for deterministic Home tile ordering.
+    - `intervention_catalog` — catalog rows for those interventions.
+  - Returns:
+    - `state_estimate` (nullable): latest state snapshot for Today.
+    - `interventions`: denormalized list of created intervention instances with catalog `title`/`body` and IDs/trace IDs needed for logging.
+
+This same payload can later be reused by a conversational agent without changes.
+
+### Home (Today) screen
+
+The primary app surface is a calm, glanceable Today screen:
+
+- Reads everything from `/context` in a single call.
+- Shows an optional **Today state** summary if a `state_estimate` exists.
+- Renders **0–3 Action tiles**:
+  - One tile per `intervention_instances` row with `status = "created"`.
+  - **Surface is not a filter** — all created interventions are eligible for tiles regardless of `surface`.
+  - Tiles are ordered by `created_at DESC` (from backend) before taking the first 3 for UX stability and analytics cleanliness.
+  - Each tile displays only catalog `title` and `body`, with no new copy invented.
+  - Tapping a tile opens **Intervention Detail** (does not log `tapped`; only "Try it" button does).
+- Tiles still render even if there is no state estimate.
+
+### Intervention Detail
+
+When the user taps a tile, banner, or notification:
+
+- Shows the same intervention content:
+  - Title and body from `intervention_catalog`.
+  - Optional expandable **"Why this?"** section derived from the latest `state_estimate`:
+    - Uses soft, non-clinical language (e.g., "based on signals such as..." or "your body may be responding to...").
+    - No medical claims.
+- Actions:
+  - **Try it** → logs `tapped` (explicit acceptance)
+  - **Not now** → logs `dismissed`
+  - **Skip** → logs `dismissed`
+- All actions only write `app_interactions` events; there is no explicit rating UI.
+
+### In-app banner / toast and push
+
+`intervention_selector` still uses `surface` to choose delivery:
+
+- **In-app banner/toast**:
+  - Non-blocking, dismissible.
+  - Mirrors the same intervention content as tiles.
+  - Tapping the banner routes to **Intervention Detail**.
+- **Push notification**:
+  - Soft tone trigger.
+  - Deep-link into **Intervention Detail** using the same intervention instance ID.
+
+Across all of these surfaces:
+
+- Intelligence lives in BigQuery + selector (`state_estimates`, `intervention_instances`, `intervention_catalog`, `app_interactions`).
+- The iOS app only renders what already exists and writes `app_interactions` for implicit feedback.
+
 ---
 
 ## iOS App
