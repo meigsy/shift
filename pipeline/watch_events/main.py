@@ -275,8 +275,11 @@ async def app_interactions(
         
         # Update intervention_instance status based on event_type
         # KISS: Single source of truth - backend updates status, UI reflects it
+        print(f"🔍 Checking if status update needed: event_type={interaction.event_type}, intervention_instance_id={interaction.intervention_instance_id}")
+        
         if interaction.event_type in ("tapped", "dismissed"):
             new_status = "accepted" if interaction.event_type == "tapped" else "dismissed"
+            print(f"🔄 Updating intervention_instance {interaction.intervention_instance_id} status to: {new_status}")
             
             # Update intervention_instance status
             instances_table_id = f"{project_id}.shift_data.intervention_instances"
@@ -294,12 +297,18 @@ async def app_interactions(
             )
             
             try:
+                print(f"📝 Executing UPDATE query for intervention_instance_id: {interaction.intervention_instance_id}")
                 query_job = bq_client.query(update_query, job_config=job_config)
-                query_job.result()  # Wait for completion
-                print(f"✅ Updated intervention_instance {interaction.intervention_instance_id} status to: {new_status}")
+                result = query_job.result()  # Wait for completion
+                num_rows_updated = query_job.num_dml_affected_rows if hasattr(query_job, 'num_dml_affected_rows') else "unknown"
+                print(f"✅ Updated intervention_instance {interaction.intervention_instance_id} status to: {new_status} (rows affected: {num_rows_updated})")
             except Exception as e:
                 # Log error but don't fail the request - interaction was already logged
                 print(f"⚠️ Failed to update intervention_instance status: {e}")
+                import traceback
+                print(f"⚠️ Traceback: {traceback.format_exc()}")
+        else:
+            print(f"⏭️ Skipping status update - event_type '{interaction.event_type}' not in ('tapped', 'dismissed')")
         
         return {
             "status": "success",
