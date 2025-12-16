@@ -273,6 +273,34 @@ async def app_interactions(
         
         print(f"✅ Stored interaction event: {interaction_id} for trace_id: {interaction.trace_id}")
         
+        # Update intervention_instance status based on event_type
+        # KISS: Single source of truth - backend updates status, UI reflects it
+        if interaction.event_type in ("tapped", "dismissed"):
+            new_status = "accepted" if interaction.event_type == "tapped" else "dismissed"
+            
+            # Update intervention_instance status
+            instances_table_id = f"{project_id}.shift_data.intervention_instances"
+            update_query = f"""
+                UPDATE `{instances_table_id}`
+                SET status = @new_status
+                WHERE intervention_instance_id = @intervention_instance_id
+            """
+            
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("new_status", "STRING", new_status),
+                    bigquery.ScalarQueryParameter("intervention_instance_id", "STRING", interaction.intervention_instance_id),
+                ]
+            )
+            
+            try:
+                query_job = bq_client.query(update_query, job_config=job_config)
+                query_job.result()  # Wait for completion
+                print(f"✅ Updated intervention_instance {interaction.intervention_instance_id} status to: {new_status}")
+            except Exception as e:
+                # Log error but don't fail the request - interaction was already logged
+                print(f"⚠️ Failed to update intervention_instance status: {e}")
+        
         return {
             "status": "success",
             "message": "Interaction event recorded",
