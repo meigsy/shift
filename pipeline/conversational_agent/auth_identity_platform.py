@@ -1,5 +1,3 @@
-"""Identity Platform ID token verification."""
-
 import os
 import time
 from typing import Dict
@@ -15,7 +13,6 @@ GOOGLE_ISSUER_PREFIX = "https://securetoken.google.com/"
 
 
 def get_google_jwks(project_id: str) -> Dict:
-    """Fetch and cache Google's JWKS for Identity Platform."""
     cache_key = f"jwks_{project_id}"
     if cache_key in _jwks_cache:
         return _jwks_cache[cache_key]
@@ -29,18 +26,13 @@ def get_google_jwks(project_id: str) -> Dict:
     return jwks
 
 
-def verify_identity_platform_token(token: str) -> Dict:
-    """Verify Identity Platform ID token."""
+def verify_identity_platform_token(token: str, project_id: str) -> Dict:
     try:
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
         
         if not kid:
             raise ValueError("Token missing key ID (kid)")
-        
-        project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("IDENTITY_PLATFORM_PROJECT_ID")
-        if not project_id:
-            raise ValueError("GCP_PROJECT_ID or IDENTITY_PLATFORM_PROJECT_ID environment variable not set")
         
         jwks = get_google_jwks(project_id)
         
@@ -92,10 +84,7 @@ def verify_identity_platform_token(token: str) -> Dict:
 
 
 def get_user_from_token(claims: Dict) -> str:
-    """Extract user ID from verified token claims."""
     user_id = claims.get("sub") or claims.get("user_id")
     if not user_id:
         raise ValueError("Token missing user ID (sub)")
     return user_id
-
-

@@ -1,7 +1,3 @@
-"""Direct agent creation. No business logic.
-Testable via: python -m pipeline.conversational_agent.agent
-"""
-
 from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langgraph_checkpoint_firestore import FirestoreSaver
@@ -40,15 +36,14 @@ Check-in Cadence:
 """
 
 
-def create_grow_agent(project_id: str):
-    """Create agent with Firestore persistence."""
+def create_grow_agent(project_id: str, model_name: str = "claude-sonnet-4-5-20250929"):
     checkpointer = FirestoreSaver(
         project_id=project_id,
         checkpoints_collection="agent_conversations"
     )
-    
+
     return create_agent(
-        model=ChatAnthropic(model="claude-sonnet-4-5-20250929"),
+        model=ChatAnthropic(model=model_name),
         tools=[],
         system_prompt=GROW_PROMPT,
         checkpointer=checkpointer
@@ -57,17 +52,20 @@ def create_grow_agent(project_id: str):
 
 if __name__ == "__main__":
     from langgraph.checkpoint.memory import MemorySaver
-    
+    import asyncio
+
     agent = create_agent(
         model=ChatAnthropic(model="claude-sonnet-4-5-20250929"),
         tools=[],
         system_prompt=GROW_PROMPT,
         checkpointer=MemorySaver()
     )
-    
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": "I want to sleep better"}]},
-        config={"configurable": {"thread_id": "test"}}
-    )
-    print(result["messages"][-1].content)
 
+    async def test():
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "I want to sleep better"}]},
+            config={"configurable": {"thread_id": "test"}}
+        )
+        print(result["messages"][-1].content)
+
+    asyncio.run(test())

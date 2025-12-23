@@ -20,7 +20,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 Missing variables will cause immediate startup failure (by design - fail fast, fail loud).
 
-For production (Cloud Run), `ANTHROPIC_API_KEY` is read from Secret Manager using `ANTHROPIC_API_KEY_SECRET_ID` environment variable (default: "anthropic-api-key").
+Note: In production (Cloud Run), Terraform injects `ANTHROPIC_API_KEY` from Secret Manager as an environment variable. The service code is transparent to this - it only reads from environment variables.
 
 ## Usage Examples
 

@@ -1,3 +1,0 @@
-"""SHIFT Conversational Agent Pipeline."""
-
-

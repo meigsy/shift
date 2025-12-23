@@ -21,6 +21,12 @@ resource "google_secret_manager_secret_iam_member" "conversational_agent_anthrop
   depends_on = [google_project_service.secret_manager]
 }
 
+# Read Anthropic API key from Secret Manager (injected as env var, transparent to service code)
+data "google_secret_manager_secret_version" "anthropic_api_key" {
+  secret  = var.anthropic_api_key_secret_id
+  project = var.project_id
+}
+
 # Cloud Run service for conversational_agent pipeline
 resource "google_cloud_run_service" "conversational_agent" {
   name     = "conversational-agent"
@@ -45,8 +51,8 @@ resource "google_cloud_run_service" "conversational_agent" {
         }
         
         env {
-          name  = "ANTHROPIC_API_KEY_SECRET_ID"
-          value = var.anthropic_api_key_secret_id
+          name  = "ANTHROPIC_API_KEY"
+          value = data.google_secret_manager_secret_version.anthropic_api_key.secret_data
         }
         
         ports {

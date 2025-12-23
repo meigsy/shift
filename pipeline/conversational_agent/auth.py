@@ -1,15 +1,12 @@
-"""Identity Platform authentication dependency."""
-
 import os
 from typing import Optional
-from fastapi import Header, HTTPException
+from fastapi import HTTPException, Header, Depends
 from auth_identity_platform import verify_identity_platform_token, get_user_from_token
 
 
 async def get_current_user(
-    authorization: Optional[str] = Header(None)
+        authorization: Optional[str] = Header(None)
 ) -> str:
-    """Dependency to get current authenticated user_id from ID token."""
     if not authorization:
         raise HTTPException(
             status_code=401,
@@ -26,15 +23,18 @@ async def get_current_user(
     token = parts[1]
 
     if token.startswith("mock."):
-        return "mock-user-default"
+        mock_user_id = token.split('.', 1)[1] if '.' in token else "mock-user-default"
+        return mock_user_id
 
     try:
-        claims = verify_identity_platform_token(token)
+        project_id = os.environ.get("GCP_PROJECT_ID")
+        if not project_id:
+            raise ValueError("GCP_PROJECT_ID environment variable not set")
+
+        claims = verify_identity_platform_token(token, project_id)
         user_id = get_user_from_token(claims)
         return user_id
-
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Token verification failed: {str(e)}")
-

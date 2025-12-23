@@ -17,6 +17,6 @@ gcloud run deploy $SERVICE_NAME \
   --platform managed \
   --allow-unauthenticated \
   --memory 512Mi \
-  --timeout 60s
-
-
+  --timeout 60s \
+  --set-env-vars GCP_PROJECT_ID=$PROJECT_ID \
+  --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest
