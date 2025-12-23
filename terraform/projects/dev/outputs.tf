@@ -28,6 +28,16 @@ output "intervention_selector_service_account_email" {
   value       = google_service_account.intervention_selector.email
 }
 
+output "conversational_agent_url" {
+  description = "URL of the conversational_agent Cloud Run service"
+  value       = google_cloud_run_service.conversational_agent.status[0].url
+}
+
+output "conversational_agent_service_account_email" {
+  description = "Email of the conversational_agent service account"
+  value       = google_service_account.conversational_agent.email
+}
+
 
 
 

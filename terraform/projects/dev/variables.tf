@@ -67,5 +67,17 @@ variable "watch_events_image" {
   default     = "gcr.io/PROJECT_ID/watch-events:latest"
 }
 
+variable "conversational_agent_image" {
+  description = "Container image for conversational_agent pipeline service"
+  type        = string
+  default     = "gcr.io/PROJECT_ID/conversational-agent:latest"
+}
+
+variable "anthropic_api_key_secret_id" {
+  description = "Secret Manager secret ID for Anthropic API key"
+  type        = string
+  default     = "anthropic-api-key"
+}
+
 
 

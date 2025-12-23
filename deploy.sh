@@ -58,6 +58,7 @@ TERRAFORM_DIR="$PROJECT_ROOT/terraform/projects/dev"
 WATCH_EVENTS_DIR="$PROJECT_ROOT/pipeline/watch_events"
 STATE_ESTIMATOR_DIR="$PROJECT_ROOT/pipeline/state_estimator"
 INTERVENTION_SELECTOR_DIR="$PROJECT_ROOT/pipeline/intervention_selector"
+CONVERSATIONAL_AGENT_DIR="$PROJECT_ROOT/pipeline/conversational_agent"
 
 # -------------------------------------------------------------------------------
 # Pre-Terraform Actions
@@ -74,6 +75,13 @@ if [ "$BUILD_CONTAINER" = "yes" ]; then
   gcloud builds submit --tag "$WATCH_EVENTS_IMAGE:$TAG" --project "$PROJECT" "$WATCH_EVENTS_DIR"
   
   echo "✅ Container built and pushed: $WATCH_EVENTS_IMAGE:$TAG"
+  
+  echo "🏗️  Building conversational_agent pipeline container..."
+  CONVERSATIONAL_AGENT_IMAGE="gcr.io/$PROJECT/conversational-agent"
+  
+  gcloud builds submit --tag "$CONVERSATIONAL_AGENT_IMAGE:$TAG" --project "$PROJECT" "$CONVERSATIONAL_AGENT_DIR"
+  
+  echo "✅ Container built and pushed: $CONVERSATIONAL_AGENT_IMAGE:$TAG"
 fi
 
 # -------------------------------------------------------------------------------
@@ -87,6 +95,7 @@ echo "🌍 Running Terraform..."
 
 # Always use the same image names
 WATCH_EVENTS_IMAGE="gcr.io/$PROJECT/watch-events:latest"
+CONVERSATIONAL_AGENT_IMAGE="gcr.io/$PROJECT/conversational-agent:latest"
 
 # Apply or Plan Terraform configuration
 if [ "$PLAN_ONLY" = "yes" ]; then
@@ -94,13 +103,15 @@ if [ "$PLAN_ONLY" = "yes" ]; then
   (cd "$TERRAFORM_DIR" && terraform plan \
     -var="project_id=$PROJECT" \
     -var="region=$REGION" \
-    -var="watch_events_image=$WATCH_EVENTS_IMAGE")
+    -var="watch_events_image=$WATCH_EVENTS_IMAGE" \
+    -var="conversational_agent_image=$CONVERSATIONAL_AGENT_IMAGE")
   echo "Terraform plan completed successfully."
 else
   (cd "$TERRAFORM_DIR" && terraform apply \
     -var="project_id=$PROJECT" \
     -var="region=$REGION" \
     -var="watch_events_image=$WATCH_EVENTS_IMAGE" \
+    -var="conversational_agent_image=$CONVERSATIONAL_AGENT_IMAGE" \
     -auto-approve)
 fi
 
