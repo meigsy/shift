@@ -12,6 +12,21 @@ import Combine
 struct ios_appApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
+    // Base URLs - read from Info.plist (single canonical source)
+    // Add to Info.plist: INFOPLIST_KEY_CONVERSATIONAL_AGENT_BASE_URL = "https://..."
+    static var CONVERSATIONAL_AGENT_BASE_URL: String {
+        if let url = Bundle.main.infoDictionary?["CONVERSATIONAL_AGENT_BASE_URL"] as? String,
+           !url.isEmpty {
+            return url
+        }
+        #if DEBUG
+        print("⚠️ CONVERSATIONAL_AGENT_BASE_URL not found in Info.plist, using fallback")
+        return "https://conversational-agent-xxx-uc.a.run.app"
+        #else
+        fatalError("CONVERSATIONAL_AGENT_BASE_URL must be set in Info.plist")
+        #endif
+    }
+    
     // Shared instances
     @StateObject private var healthKitManager = HealthKitManager()
     // Set useMockAuth: true to test without Apple Developer account

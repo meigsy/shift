@@ -9,10 +9,18 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var authViewModel: AuthViewModel
+    @AppStorage("useChatShell") private var useChatShell: Bool = true
     
     var body: some View {
         if authViewModel.isAuthenticated {
-            MainView(authViewModel: authViewModel)
+            if useChatShell {
+                AppShellView(
+                    authViewModel: authViewModel,
+                    conversationalAgentBaseURL: ios_appApp.CONVERSATIONAL_AGENT_BASE_URL
+                )
+            } else {
+                MainView(authViewModel: authViewModel)
+            }
         } else {
             LoginView(authViewModel: authViewModel)
         }

@@ -95,6 +95,13 @@ class AuthViewModel: NSObject, ObservableObject {
         UserDefaults.standard.set(token, forKey: tokenKey)
     }
     
+    func getBearerToken() async throws -> String {
+        guard let token = idToken else {
+            throw AuthError.invalidResponse
+        }
+        return token
+    }
+    
     // MARK: - Backend API Calls
     
     private func authenticateWithBackend(identityToken: String, authorizationCode: String) async throws {
