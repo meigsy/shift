@@ -7,21 +7,18 @@
 
 import SwiftUI
 
+struct ComposerHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct ChatView: View {
     @ObservedObject var chatViewModel: ChatViewModel
-    @State private var inputText: String = ""
+    @State private var draftText: String = ""
     @FocusState private var isInputFocused: Bool
+    @State private var composerHeight: CGFloat = 0
     
     var body: some View {
-        VStack(spacing: 0) {
-            messagesList
-            inputSection
-        }
-        .navigationTitle("Chat")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-    
-    private var messagesList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
@@ -29,21 +26,47 @@ struct ChatView: View {
                         emptyState
                     } else {
                         ForEach(chatViewModel.messages) { message in
-                            MessageBubble(message: message)
+                            ChatMessageRow(message: message)
                                 .id(message.id)
                         }
                     }
+                    
+                    // Reserve space for composer so nothing can go underneath it
+                    Color.clear
+                        .frame(height: composerHeight + 16)
+                        .id("BOTTOM")
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onAppear {
+                DispatchQueue.main.async { proxy.scrollTo("BOTTOM", anchor: .bottom) }
             }
             .onChange(of: chatViewModel.messages.count) { _, _ in
-                if let lastMessage = chatViewModel.messages.last {
-                    withAnimation {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
+                DispatchQueue.main.async {
+                    withAnimation { proxy.scrollTo("BOTTOM", anchor: .bottom) }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                ChatComposerBar(
+                    chatViewModel: chatViewModel,
+                    draftText: $draftText,
+                    isInputFocused: $isInputFocused
+                )
+                .background(.ultraThinMaterial)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ComposerHeightKey.self, value: geo.size.height)
+                    }
+                )
+            }
+            .onPreferenceChange(ComposerHeightKey.self) { newHeight in
+                if abs(newHeight - composerHeight) > 0.5 { composerHeight = newHeight }
+            }
         }
+        .navigationTitle("Chat")
+        .navigationBarTitleDisplayMode(.inline)
     }
     
     private var emptyState: some View {
@@ -61,104 +84,6 @@ struct ChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
-    }
-    
-    private var inputSection: some View {
-        VStack(spacing: 0) {
-            if let errorMessage = chatViewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
-            }
-            
-            HStack(spacing: 12) {
-                TextField("Type a message...", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                    .focused($isInputFocused)
-                    .disabled(chatViewModel.isLoading)
-                    .onChange(of: inputText) { oldValue, newValue in
-                        // Detect Enter key press (newline added) and send message
-                        if newValue.hasSuffix("\n") && !oldValue.hasSuffix("\n") {
-                            // Remove the newline and send
-                            inputText = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !inputText.isEmpty && !chatViewModel.isLoading {
-                                sendMessage()
-                            } else {
-                                // If empty after trim, just remove the newline
-                                inputText = oldValue
-                            }
-                        }
-                    }
-                
-                Button {
-                    sendMessage()
-                } label: {
-                    if chatViewModel.isLoading {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                    }
-                }
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatViewModel.isLoading)
-            }
-            .padding()
-            .background(Color(.systemBackground))
-        }
-    }
-    
-    private func sendMessage() {
-        let text = inputText
-        inputText = ""
-        isInputFocused = false
-        
-        Task {
-            await chatViewModel.sendMessage(text)
-        }
-    }
-}
-
-struct MessageBubble: View {
-    let message: ChatMessage
-    
-    var body: some View {
-        HStack {
-            if message.role == "user" {
-                Spacer()
-            }
-            
-            VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
-                Group {
-                    if let attributedString = try? AttributedString(markdown: message.text) {
-                        Text(attributedString)
-                    } else {
-                        Text(message.text)
-                    }
-                }
-                .textSelection(.enabled)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(
-                    message.role == "user"
-                        ? Color.blue
-                        : Color(.secondarySystemBackground)
-                )
-                .foregroundStyle(
-                    message.role == "user"
-                        ? .white
-                        : .primary
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-            }
-            
-            if message.role != "user" {
-                Spacer()
-            }
-        }
     }
 }
 
