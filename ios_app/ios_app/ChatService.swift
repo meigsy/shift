@@ -104,22 +104,6 @@ class ChatService {
                         }
                     }
                     
-                    // Handle any remaining bytes in buffer
-                    if !lineBuffer.isEmpty {
-                        if let line = String(data: Data(lineBuffer), encoding: .utf8) {
-                            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                            var content: String = ""
-                            if trimmedLine.hasPrefix("data: ") {
-                                content = String(trimmedLine.dropFirst(6))
-                            } else if !trimmedLine.isEmpty {
-                                content = trimmedLine
-                            }
-                            if !content.isEmpty && content != "[DONE]" {
-                                continuation.yield(content)
-                            }
-                        }
-                    }
-                    
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

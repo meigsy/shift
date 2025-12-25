@@ -41,7 +41,9 @@ struct ChatView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onAppear {
-                DispatchQueue.main.async { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                if !chatViewModel.messages.isEmpty {
+                    DispatchQueue.main.async { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                }
             }
             .onChange(of: chatViewModel.messages.count) { _, _ in
                 DispatchQueue.main.async {
