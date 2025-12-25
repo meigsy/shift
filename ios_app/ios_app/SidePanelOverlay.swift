@@ -11,6 +11,7 @@ struct SidePanelOverlay: View {
     @Binding var isOpen: Bool
     let chatViewModel: ChatViewModel
     let authViewModel: AuthViewModel
+    @State private var showSettings: Bool = false
     
     private let panelWidth: CGFloat = 280
     
@@ -118,9 +119,30 @@ struct SidePanelOverlay: View {
                 .padding(.top)
             
             Button {
+                // #region agent log
+                if let logData = try? JSONSerialization.data(withJSONObject: [
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "D",
+                    "location": "SidePanelOverlay.swift:120",
+                    "message": "Settings button tapped",
+                    "data": ["isOpen": isOpen],
+                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000)
+                ]), let logString = String(data: logData, encoding: .utf8) {
+                    let logPath = "/Users/sly/dev/shift/.cursor/debug.log"
+                    if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                        fileHandle.seekToEndOfFile()
+                        fileHandle.write((logString + "\n").data(using: .utf8)!)
+                        fileHandle.closeFile()
+                    } else {
+                        try? (logString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                    }
+                }
+                // #endregion
                 withAnimation {
                     isOpen = false
                 }
+                showSettings = true
             } label: {
                 HStack {
                     Image(systemName: "gearshape")
@@ -130,6 +152,9 @@ struct SidePanelOverlay: View {
                 .padding()
             }
             .buttonStyle(.plain)
+            .sheet(isPresented: $showSettings) {
+                SettingsView(authViewModel: authViewModel)
+            }
             
             Button {
                 authViewModel.signOut()
