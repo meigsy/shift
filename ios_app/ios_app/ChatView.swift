@@ -79,6 +79,19 @@ struct ChatView: View {
                     .lineLimit(1...4)
                     .focused($isInputFocused)
                     .disabled(chatViewModel.isLoading)
+                    .onChange(of: inputText) { oldValue, newValue in
+                        // Detect Enter key press (newline added) and send message
+                        if newValue.hasSuffix("\n") && !oldValue.hasSuffix("\n") {
+                            // Remove the newline and send
+                            inputText = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !inputText.isEmpty && !chatViewModel.isLoading {
+                                sendMessage()
+                            } else {
+                                // If empty after trim, just remove the newline
+                                inputText = oldValue
+                            }
+                        }
+                    }
                 
                 Button {
                     sendMessage()
@@ -119,20 +132,27 @@ struct MessageBubble: View {
             }
             
             VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
-                Text(message.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        message.role == "user"
-                            ? Color.blue
-                            : Color(.secondarySystemBackground)
-                    )
-                    .foregroundStyle(
-                        message.role == "user"
-                            ? .white
-                            : .primary
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                Group {
+                    if let attributedString = try? AttributedString(markdown: message.text) {
+                        Text(attributedString)
+                    } else {
+                        Text(message.text)
+                    }
+                }
+                .textSelection(.enabled)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    message.role == "user"
+                        ? Color.blue
+                        : Color(.secondarySystemBackground)
+                )
+                .foregroundStyle(
+                    message.role == "user"
+                        ? .white
+                        : .primary
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 18))
             }
             
             if message.role != "user" {

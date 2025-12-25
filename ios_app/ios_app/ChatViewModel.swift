@@ -42,30 +42,7 @@ class ChatViewModel: ObservableObject {
         do {
             let stream = try await chatService.sendMessage(text, threadId: activeThreadId)
             
-            var chunkCount = 0
             for try await chunk in stream {
-                chunkCount += 1
-                // #region agent log
-                if let logData = try? JSONSerialization.data(withJSONObject: [
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "F",
-                    "location": "ChatViewModel.swift:47",
-                    "message": "Chunk received in ViewModel",
-                    "data": ["chunkNumber": chunkCount, "chunkLength": chunk.count, "chunkPreview": String(chunk.prefix(50))],
-                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000)
-                ]), let logString = String(data: logData, encoding: .utf8) {
-                    let logPath = "/Users/sly/dev/shift/.cursor/debug.log"
-                    if let fileHandle = FileHandle(forWritingAtPath: logPath) {
-                        fileHandle.seekToEndOfFile()
-                        fileHandle.write((logString + "\n").data(using: .utf8)!)
-                        fileHandle.closeFile()
-                    } else {
-                        try? (logString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
-                    }
-                }
-                // #endregion
-                
                 await MainActor.run {
                     assistantMessage = ChatMessage(
                         id: assistantMessage.id,
@@ -76,27 +53,6 @@ class ChatViewModel: ObservableObject {
                     messages[assistantIndex] = assistantMessage
                 }
             }
-            
-            // #region agent log
-            if let logData = try? JSONSerialization.data(withJSONObject: [
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "F",
-                "location": "ChatViewModel.swift:70",
-                "message": "Stream completed",
-                "data": ["totalChunks": chunkCount, "finalMessageLength": assistantMessage.text.count],
-                "timestamp": Int64(Date().timeIntervalSince1970 * 1000)
-            ]), let logString = String(data: logData, encoding: .utf8) {
-                let logPath = "/Users/sly/dev/shift/.cursor/debug.log"
-                if let fileHandle = FileHandle(forWritingAtPath: logPath) {
-                    fileHandle.seekToEndOfFile()
-                    fileHandle.write((logString + "\n").data(using: .utf8)!)
-                    fileHandle.closeFile()
-                } else {
-                    try? (logString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
-                }
-            }
-            // #endregion
             
             await MainActor.run {
                 isLoading = false
