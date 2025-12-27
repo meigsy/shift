@@ -132,3 +132,4 @@
 2. **ChatMessageRow.swift**: Clean, proper styling, markdown support
 3. **ChatViewModel.swift**: Clean streaming logic, proper error handling
 
+
