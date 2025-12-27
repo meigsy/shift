@@ -35,7 +35,9 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        var assistantMessage = ChatMessage(role: "assistant", text: "")
+        let assistantMessageId = UUID()
+        var accumulatedText = ""
+        let assistantMessage = ChatMessage(id: assistantMessageId, role: "assistant", text: "")
         let assistantIndex = messages.count
         messages.append(assistantMessage)
         
@@ -44,13 +46,14 @@ class ChatViewModel: ObservableObject {
             
             for try await chunk in stream {
                 await MainActor.run {
-                    assistantMessage = ChatMessage(
-                        id: assistantMessage.id,
-                        role: assistantMessage.role,
-                        text: assistantMessage.text + chunk,
+                    accumulatedText += chunk
+                    let updatedMessage = ChatMessage(
+                        id: assistantMessageId,
+                        role: "assistant",
+                        text: accumulatedText,
                         createdAt: assistantMessage.createdAt
                     )
-                    messages[assistantIndex] = assistantMessage
+                    messages[assistantIndex] = updatedMessage
                 }
             }
             
@@ -79,7 +82,7 @@ class ChatViewModel: ObservableObject {
                         errorMessage = error.localizedDescription
                     }
                 }
-                if let index = messages.firstIndex(where: { $0.id == assistantMessage.id }) {
+                if let index = messages.firstIndex(where: { $0.id == assistantMessageId }) {
                     messages.remove(at: index)
                 }
             }
@@ -92,5 +95,75 @@ class ChatViewModel: ObservableObject {
         messages.removeAll()
         errorMessage = nil
     }
+    
+    // MARK: - Card and Message Injection
+    
+    /// Inject a message into the chat (non-streaming)
+    func injectMessage(role: String = "assistant", text: String) {
+        let message = ChatMessage(role: role, text: text)
+        messages.append(message)
+    }
+    
+    /// Insert a card into messages if it doesn't already exist (deduplication by card.id)
+    func insertCard(_ card: ChatCard) {
+        // Check if card with same id already exists
+        let cardExists = messages.contains { message in
+            if case .card(let existingCard) = message.kind {
+                return existingCard.id == card.id
+            }
+            return false
+        }
+        
+        if !cardExists {
+            let cardMessage = ChatMessage(role: "system", card: card)
+            messages.append(cardMessage)
+        }
+    }
+    
+    /// Remove a card message by card id
+    func removeCard(cardId: String) {
+        messages.removeAll { message in
+            if case .card(let card) = message.kind {
+                return card.id == cardId
+            }
+            return false
+        }
+    }
+    
+    // MARK: - Onboarding
+    
+    private let hasCompletedOnboardingKey = "com.shift.ios-app.hasCompletedOnboarding"
+    
+    func hasCompletedOnboarding() -> Bool {
+        return UserDefaults.standard.bool(forKey: hasCompletedOnboardingKey)
+    }
+    
+    func markOnboardingCompleted() {
+        UserDefaults.standard.set(true, forKey: hasCompletedOnboardingKey)
+    }
+    
+    func checkOnboardingCard() {
+        guard !hasCompletedOnboarding() else { return }
+        
+        // Check if onboarding card already exists
+        let onboardingCardExists = messages.contains { message in
+            if case .card(let card) = message.kind {
+                return card.id == "onboarding_get_started"
+            }
+            return false
+        }
+        
+        if !onboardingCardExists {
+            let onboardingCard = ChatCard(
+                id: "onboarding_get_started",
+                title: "Get started with SHIFT",
+                body: "Learn what SHIFT is and kick off your first check-in.",
+                primaryCTA: CardAction(
+                    label: "Get started",
+                    action: .openExperience(.onboarding)
+                )
+            )
+            insertCard(onboardingCard)
+        }
+    }
 }
-

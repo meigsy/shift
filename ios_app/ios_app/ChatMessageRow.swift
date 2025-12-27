@@ -9,6 +9,12 @@ import SwiftUI
 
 struct ChatMessageRow: View {
     let message: ChatMessage
+    let onCardAction: ((ActionType) -> Void)?
+    
+    init(message: ChatMessage, onCardAction: ((ActionType) -> Void)? = nil) {
+        self.message = message
+        self.onCardAction = onCardAction
+    }
     
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -17,28 +23,43 @@ struct ChatMessageRow: View {
             }
             
             Group {
-                if let attributedString = try? AttributedString(markdown: message.text) {
-                    Text(attributedString)
-                } else {
-                    Text(message.text)
+                switch message.kind {
+                case .text(let text):
+                    textBubble(text)
+                case .card(let card):
+                    if let onCardAction = onCardAction {
+                        ChatCardInlineView(card: card, onAction: onCardAction)
+                    } else {
+                        ChatCardInlineView(card: card, onAction: { _ in })
+                    }
                 }
             }
-            .textSelection(.enabled)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: message.role == "assistant" ? .infinity : nil, alignment: .leading)
-            .background(
-                message.role == "user"
-                    ? Color(.secondarySystemBackground)
-                    : Color.clear
-            )
-            .foregroundStyle(.primary)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .frame(maxWidth: message.role == "user" ? nil : .infinity, alignment: message.role == "user" ? .trailing : .leading)
             
             if message.role == "user" {
                 Spacer()
             }
         }
     }
+    
+    @ViewBuilder
+    private func textBubble(_ text: String) -> some View {
+        Group {
+            if let attributedString = try? AttributedString(markdown: text) {
+                Text(attributedString)
+            } else {
+                Text(text)
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            message.role == "user"
+                ? Color(.secondarySystemBackground)
+                : Color.clear
+        )
+        .foregroundStyle(.primary)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
 }
-
