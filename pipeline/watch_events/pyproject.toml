@@ -13,5 +13,6 @@ dependencies = [
     "google-cloud-firestore",
     "google-cloud-bigquery",
     "google-cloud-pubsub",
+    "pytest>=8.0.0",
 ]
 

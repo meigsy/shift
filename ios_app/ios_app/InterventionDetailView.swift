@@ -15,8 +15,10 @@ struct InterventionDetailView: View {
     let savedInterventions: [String]
     
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var chatViewModel: ChatViewModel
     @State private var isWhyExpanded = false
     @State private var isSaved: Bool = false
+    @State private var showFullScreenFlow = false
     
     var body: some View {
         ScrollView {
@@ -50,6 +52,14 @@ struct InterventionDetailView: View {
         }
         .navigationTitle("Intervention")
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $showFullScreenFlow) {
+            PagedInterventionView(
+                intervention: intervention,
+                interactionService: interactionService,
+                userId: userId
+            )
+            .environmentObject(chatViewModel)
+        }
         .onAppear {
             isSaved = savedInterventions.contains(intervention.interventionKey)
         }
@@ -58,8 +68,7 @@ struct InterventionDetailView: View {
     private var actionButtons: some View {
         VStack(spacing: 12) {
             Button {
-                recordInteraction(eventType: "tapped")
-                dismiss()
+                handleTryIt()
             } label: {
                 Text("Try it")
                     .frame(maxWidth: .infinity)
@@ -122,6 +131,35 @@ struct InterventionDetailView: View {
     }
     
     // MARK: - Helpers
+    
+    private func handleTryIt() {
+        // Always record the 'tapped' event
+        recordInteraction(eventType: "tapped")
+        
+        // Dispatch based on action type
+        guard let action = intervention.action else {
+            // No action defined - just dismiss
+            dismiss()
+            return
+        }
+        
+        switch action.type {
+        case "chat_prompt":
+            // Inject message and dismiss
+            if let prompt = action.prompt {
+                chatViewModel.injectMessage(role: "assistant", text: prompt)
+            }
+            dismiss()
+            
+        case "full_screen_flow":
+            // Show fullscreen cover
+            showFullScreenFlow = true
+            
+        default:
+            // "none" or unknown type - just dismiss
+            dismiss()
+        }
+    }
     
     private func recordInteraction(eventType: String) {
         guard let interactionService = interactionService else { return }

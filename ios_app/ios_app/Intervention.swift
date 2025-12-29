@@ -7,7 +7,53 @@
 
 import Foundation
 
-struct Intervention: Decodable, Identifiable, Equatable {
+
+// Use class to allow recursive structure (reference type)
+class InterventionAction: Codable, Equatable {
+    let type: String
+    let prompt: String?
+    let completionAction: InterventionAction?
+    
+    enum CodingKeys: String, CodingKey {
+        case type
+        case prompt
+        case completionAction = "completion_action"
+    }
+    
+    static func == (lhs: InterventionAction, rhs: InterventionAction) -> Bool {
+        lhs.type == rhs.type && lhs.prompt == rhs.prompt && lhs.completionAction == rhs.completionAction
+    }
+}
+
+// MARK: - Intervention Page
+
+struct InterventionPage: Codable, Equatable {
+    let template: String
+    let title: String?
+    let subtitle: String?
+    let buttonText: String?
+    let bullets: [String]?
+    let features: [Feature]?
+    
+    struct Feature: Codable, Equatable {
+        let icon: String
+        let title: String
+        let subtitle: String
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case template
+        case title
+        case subtitle
+        case buttonText = "button_text"
+        case bullets
+        case features
+    }
+}
+
+// MARK: - Intervention
+
+struct Intervention: Codable, Identifiable, Equatable {
     let interventionInstanceId: String
     let userId: String
     let metric: String
@@ -21,6 +67,8 @@ struct Intervention: Decodable, Identifiable, Equatable {
     let sentAt: Date?
     let status: String
     let traceId: String?
+    let action: InterventionAction?
+    let pages: [InterventionPage]?
     
     var id: String { interventionInstanceId }
     
@@ -38,6 +86,8 @@ struct Intervention: Decodable, Identifiable, Equatable {
         case sentAt = "sent_at"
         case status
         case traceId = "trace_id"
+        case action
+        case pages
     }
     
     init(from decoder: Decoder) throws {
@@ -78,6 +128,10 @@ struct Intervention: Decodable, Identifiable, Equatable {
         
         let sentAtString = try? container.decodeIfPresent(String.self, forKey: .sentAt)
         sentAt = parseDate(from: sentAtString)
+        
+        // Decode optional action and pages fields
+        action = try container.decodeIfPresent(InterventionAction.self, forKey: .action)
+        pages = try container.decodeIfPresent([InterventionPage].self, forKey: .pages)
     }
 }
 

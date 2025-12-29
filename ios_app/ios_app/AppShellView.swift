@@ -11,23 +11,9 @@ struct AppShellView: View {
     let authViewModel: AuthViewModel
     let conversationalAgentBaseURL: String
     
-    @StateObject private var chatViewModel: ChatViewModel
+    @EnvironmentObject private var chatViewModel: ChatViewModel
     @State private var isSidePanelOpen: Bool = false
     @State private var activeExperience: ExperienceID? = nil
-    
-    init(authViewModel: AuthViewModel, conversationalAgentBaseURL: String) {
-        self.authViewModel = authViewModel
-        self.conversationalAgentBaseURL = conversationalAgentBaseURL
-        
-        let chatService = ChatService(
-            baseURL: conversationalAgentBaseURL,
-            authViewModel: authViewModel
-        )
-        _chatViewModel = StateObject(wrappedValue: ChatViewModel(
-            chatService: chatService,
-            authViewModel: authViewModel
-        ))
-    }
     
     var body: some View {
         NavigationStack {

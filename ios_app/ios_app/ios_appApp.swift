@@ -28,8 +28,11 @@ struct ios_appApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView(authViewModel: authViewModel)
-                .environmentObject(healthKitManager)
+            ContentView(
+                authViewModel: authViewModel,
+                conversationalAgentBaseURL: ios_appApp.CONVERSATIONAL_AGENT_BASE_URL
+            )
+            .environmentObject(healthKitManager)
                 .onAppear {
                     // Initialize ApiClient with auth token
                     let apiClient = ApiClient(

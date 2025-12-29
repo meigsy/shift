@@ -7,3 +7,4 @@ cachetools
 google-cloud-firestore
 google-cloud-bigquery
 google-cloud-pubsub
+pytest

@@ -614,6 +614,74 @@ async def get_context(
                 }
             )
 
+        # PHASE 3: Conditionally insert getting_started intervention if not completed
+        if not getting_started_completed:
+            getting_started_dict = {
+            "intervention_instance_id": str(uuid4()),
+            "user_id": user_id,
+            "metric": "getting_started",
+            "level": "info",
+            "surface": "notification",
+            "intervention_key": "getting_started_v1",
+            "title": "Welcome to SHIFT",
+            "body": "Get started with your personal health operating system",
+            "created_at": datetime.now().isoformat(),
+            "scheduled_at": None,
+            "sent_at": None,
+            "status": "created",
+            "trace_id": "getting-started-trace-id",
+            "action": {
+                "type": "full_screen_flow",
+                "completion_action": {
+                    "type": "chat_prompt",
+                    "prompt": "The user is starting their GROW conversation. Begin with G (Goal)."
+                }
+            },
+            "pages": [
+                {
+                    "template": "hero",
+                    "title": "Welcome to SHIFT",
+                    "subtitle": "Your personal health operating system"
+                },
+                {
+                    "template": "feature_list",
+                    "title": "Mind · Body · Bell",
+                    "features": [
+                        {
+                            "icon": "brain.head.profile",
+                            "title": "Mind",
+                            "subtitle": "Track your mental wellness and cognitive patterns"
+                        },
+                        {
+                            "icon": "figure.walk",
+                            "title": "Body",
+                            "subtitle": "Monitor your physical health and activity"
+                        },
+                        {
+                            "icon": "bell",
+                            "title": "Bell",
+                            "subtitle": "Get timely insights and interventions"
+                        }
+                    ]
+                },
+                {
+                    "template": "bullet_list",
+                    "title": "How it works",
+                    "bullets": [
+                        "SHIFT continuously monitors your health data",
+                        "Our AI identifies patterns and opportunities",
+                        "You receive personalized interventions at the right time"
+                    ]
+                },
+                {
+                    "template": "cta",
+                    "title": "Ready to begin?",
+                    "button_text": "Start"
+                }
+            ]
+            }
+            interventions.insert(0, getting_started_dict)
+
         # Serialize state_estimate to JSON-friendly form
         state_payload = None
         if state_estimate is not None:
