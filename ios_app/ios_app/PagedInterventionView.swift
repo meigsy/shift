@@ -18,14 +18,28 @@ struct PagedInterventionView: View {
     
     var body: some View {
         ZStack(alignment: .topLeading) {
-            TabView(selection: $currentPage) {
-                ForEach(Array((intervention.pages ?? []).enumerated()), id: \.offset) { index, page in
-                    pageView(for: page, isLastPage: index == (intervention.pages?.count ?? 0) - 1)
-                        .tag(index)
+            // Guard against nil or empty pages
+            if let pages = intervention.pages, !pages.isEmpty {
+                TabView(selection: $currentPage) {
+                    ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                        pageView(for: page, isLastPage: index == pages.count - 1)
+                            .tag(index)
+                    }
                 }
+                .tabViewStyle(.page)
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+            } else {
+                // Fallback for empty/nil pages
+                VStack(spacing: 16) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text("No pages to display")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .tabViewStyle(.page)
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
             
             // X button in top-left
             Button {
@@ -57,7 +71,17 @@ struct PagedInterventionView: View {
             case "cta":
                 ctaPage(page, isLastPage: isLastPage)
             default:
-                Text("Unknown template: \(page.template)")
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.orange)
+                    Text("Unknown template: \(page.template)")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                    Text("Supported: hero, feature_list, bullet_list, cta")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             
             Spacer()
@@ -152,17 +176,24 @@ struct PagedInterventionView: View {
     }
     
     private func handleCompletion() {
-        // Record flow_completed event
+        // Record flow_completed event using flow_id/flow_version from intervention action
         if let interactionService = interactionService {
+            let flowId = intervention.action?.flowId ?? "unknown"
+            let flowVersion = intervention.action?.flowVersion ?? "v1"
+            
             Task {
-                try? await interactionService.recordFlowEvent(
-                    eventType: "flow_completed",
-                    userId: userId,
-                    payload: [
-                        "flow_id": GettingStartedFlow.flowId,
-                        "flow_version": GettingStartedFlow.version
-                    ]
-                )
+                do {
+                    try await interactionService.recordFlowEvent(
+                        eventType: "flow_completed",
+                        userId: userId,
+                        payload: [
+                            "flow_id": flowId,
+                            "flow_version": flowVersion
+                        ]
+                    )
+                } catch {
+                    print("⚠️ Failed to record flow_completed event: \(error)")
+                }
             }
         }
         

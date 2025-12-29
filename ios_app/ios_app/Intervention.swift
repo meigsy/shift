@@ -13,15 +13,19 @@ class InterventionAction: Codable, Equatable {
     let type: String
     let prompt: String?
     let completionAction: InterventionAction?
+    let flowId: String?
+    let flowVersion: String?
     
     enum CodingKeys: String, CodingKey {
         case type
         case prompt
         case completionAction = "completion_action"
+        case flowId = "flow_id"
+        case flowVersion = "flow_version"
     }
     
     static func == (lhs: InterventionAction, rhs: InterventionAction) -> Bool {
-        lhs.type == rhs.type && lhs.prompt == rhs.prompt && lhs.completionAction == rhs.completionAction
+        lhs.type == rhs.type && lhs.prompt == rhs.prompt && lhs.completionAction == rhs.completionAction && lhs.flowId == rhs.flowId && lhs.flowVersion == rhs.flowVersion
     }
 }
 

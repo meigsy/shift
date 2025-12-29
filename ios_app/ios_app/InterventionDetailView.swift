@@ -165,11 +165,15 @@ struct InterventionDetailView: View {
         guard let interactionService = interactionService else { return }
         
         Task {
-            try? await interactionService.recordInteraction(
-                intervention: intervention,
-                eventType: eventType,
-                userId: userId
-            )
+            do {
+                try await interactionService.recordInteraction(
+                    intervention: intervention,
+                    eventType: eventType,
+                    userId: userId
+                )
+            } catch {
+                print("⚠️ Failed to record \(eventType) event: \(error)")
+            }
         }
     }
     

@@ -152,5 +152,52 @@ def test_context_hides_getting_started_when_completed(client, mock_user):
     app.dependency_overrides.clear()
 
 
+def test_getting_started_has_unique_trace_ids(client, mock_user):
+    """Test that each getting_started intervention has a unique trace_id (not hardcoded)."""
+    
+    # Mock the get_current_user dependency
+    def override_get_current_user():
+        return mock_user
+    
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    
+    # Mock the repository methods
+    with patch('watch_events.main.ContextRepository') as MockRepo:
+        mock_repo_instance = MockRepo.return_value
+        mock_repo_instance.has_completed_flow.return_value = False
+        mock_repo_instance.get_latest_state_estimate.return_value = None
+        mock_repo_instance.get_created_interventions_for_user.return_value = []
+        mock_repo_instance.get_catalog_for_keys.return_value = {}
+        mock_repo_instance.get_saved_interventions.return_value = []
+        
+        # Make first request
+        response1 = client.get("/context")
+        assert response1.status_code == 200
+        data1 = response1.json()
+        
+        # Make second request
+        response2 = client.get("/context")
+        assert response2.status_code == 200
+        data2 = response2.json()
+        
+        # Get trace_ids from getting_started interventions
+        trace_id_1 = data1["interventions"][0]["trace_id"]
+        trace_id_2 = data2["interventions"][0]["trace_id"]
+        
+        # Assert both are UUIDs (not hardcoded)
+        assert trace_id_1 != "getting-started-trace-id", "trace_id should not be hardcoded"
+        assert trace_id_2 != "getting-started-trace-id", "trace_id should not be hardcoded"
+        
+        # Assert they are unique (different UUIDs per request)
+        assert trace_id_1 != trace_id_2, "Each request should generate a unique trace_id"
+        
+        # Assert they look like UUIDs (36 chars with dashes)
+        assert len(trace_id_1) == 36, "trace_id should be UUID format"
+        assert len(trace_id_2) == 36, "trace_id should be UUID format"
+    
+    # Clean up
+    app.dependency_overrides.clear()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

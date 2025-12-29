@@ -529,53 +529,6 @@ async def get_context(
         except Exception as e:
             print(f"⚠️ Error checking flow_requested: {e}")
         
-        if (not getting_started_completed or flow_requested):
-            # Check if getting_started instance already exists
-            existing_query = f"""
-                SELECT COUNT(*) as count
-                FROM `{project_id}.shift_data.intervention_instances`
-                WHERE user_id = @user_id
-                  AND intervention_key = 'getting_started_v1'
-                  AND status = 'created'
-            """
-            try:
-                job_config = bigquery.QueryJobConfig(
-                    query_parameters=[
-                        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
-                    ]
-                )
-                query_job = bq_client.query(existing_query, job_config=job_config)
-                results = query_job.result()
-                instance_exists = False
-                for row in results:
-                    instance_exists = row.count > 0
-                
-                if not instance_exists:
-                    # Create getting_started intervention instance on-demand
-                    # Lazy import intervention selector modules
-                    get_intervention_func, BigQueryClientClass = _get_intervention_selector_modules()
-                    
-                    if get_intervention_func and BigQueryClientClass:
-                        selector_bq = BigQueryClientClass(project_id=project_id, dataset_id=dataset_id)
-                        getting_started_catalog = get_intervention_func("getting_started_v1", selector_bq)
-                    else:
-                        getting_started_catalog = None
-                        print("⚠️ Cannot create getting_started instance - intervention_selector modules not available")
-                    
-                    if getting_started_catalog:
-                        trace_id = str(uuid4())
-                        instance_id = selector_bq.create_intervention_instance(
-                            user_id=user_id,
-                            metric=getting_started_catalog.get("metric", "onboarding"),
-                            level=getting_started_catalog.get("level", "default"),
-                            surface=getting_started_catalog.get("surface", "chat_card"),
-                            intervention_key="getting_started_v1",
-                            trace_id=trace_id
-                        )
-                        print(f"✅ Created getting_started intervention instance {instance_id} for user {user_id}")
-            except Exception as e:
-                print(f"⚠️ Error creating getting_started instance: {e}")
-
         # Latest state estimate (optional)
         state_estimate = repo.get_latest_state_estimate(user_id=user_id)
 
@@ -614,8 +567,8 @@ async def get_context(
                 }
             )
 
-        # PHASE 3: Conditionally insert getting_started intervention if not completed
-        if not getting_started_completed:
+        # PHASE 3: Conditionally insert getting_started intervention if not completed (or re-requested)
+        if not getting_started_completed or flow_requested:
             getting_started_dict = {
             "intervention_instance_id": str(uuid4()),
             "user_id": user_id,
@@ -629,9 +582,11 @@ async def get_context(
             "scheduled_at": None,
             "sent_at": None,
             "status": "created",
-            "trace_id": "getting-started-trace-id",
+            "trace_id": str(uuid4()),
             "action": {
                 "type": "full_screen_flow",
+                "flow_id": "getting_started",
+                "flow_version": "v1",
                 "completion_action": {
                     "type": "chat_prompt",
                     "prompt": "The user is starting their GROW conversation. Begin with G (Goal)."
