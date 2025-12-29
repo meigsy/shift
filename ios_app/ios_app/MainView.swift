@@ -99,7 +99,8 @@ struct MainView: View {
                     intervention: intervention,
                     stateEstimate: nil, // Could fetch from context if needed
                     interactionService: interactionService,
-                    userId: authViewModel.user?.userId ?? ""
+                    userId: authViewModel.user?.userId ?? "",
+                    savedInterventions: [] // Banners from polling don't track saved state
                 )
             }
         }
@@ -208,7 +209,7 @@ struct MainView: View {
             return
         }
         
-        guard let userId = authViewModel.user?.userId else {
+        guard authViewModel.user?.userId != nil else {
             print("⚠️ [\(timestamp)] Cannot setup services - no user ID")
             return
         }

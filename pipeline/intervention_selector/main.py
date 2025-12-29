@@ -52,6 +52,35 @@ def process_state_estimate(user_id: str, timestamp: str) -> None:
         logger.info(f"No intervention selected for user {user_id}")
         return
 
+    # Check for duplicate getting_started instances before creating
+    # Only dedup if flow is NOT completed (allows new versions after completion)
+    if intervention["intervention_key"].startswith("getting_started_"):
+        # Extract version from intervention_key (e.g., "getting_started_v1" -> "v1")
+        # Default to "v1" if version cannot be extracted
+        version = "v1"
+        if "_" in intervention["intervention_key"]:
+            parts = intervention["intervention_key"].split("_")
+            if len(parts) >= 3:
+                version = parts[-1]  # Last part should be version
+        
+        # Check if this specific flow version is already completed
+        getting_started_completed = bq_client.has_completed_flow(user_id, "getting_started", version)
+        
+        # Only dedup if flow is NOT completed (prevents duplicates before completion)
+        # If completed, allow new instances (enables v2, v3, etc. to show even if v1 exists)
+        if not getting_started_completed:
+            # Check for existing instance of the SAME intervention_key (same version)
+            existing_instance = bq_client.get_existing_getting_started_instance(
+                user_id, intervention["intervention_key"]
+            )
+            if existing_instance:
+                logger.info(
+                    f"getting_started instance already exists for user {user_id} "
+                    f"(instance_id: {existing_instance}, key: {intervention['intervention_key']}), "
+                    f"flow version {version} not completed, skipping creation"
+                )
+                return
+
     # Create intervention instance
     # CRITICAL: trace_id is REQUIRED for 100% traceability
     trace_id = state_estimate.get("trace_id")

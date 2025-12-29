@@ -10,6 +10,7 @@ import UIKit
 
 extension Notification.Name {
     static let healthDataSyncCompleted = Notification.Name("healthDataSyncCompleted")
+    static let contextRefreshNeeded = Notification.Name("contextRefreshNeeded")
 }
 
 @MainActor

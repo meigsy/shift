@@ -1,7 +1,7 @@
 """Pydantic models for request/response schemas."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -96,8 +96,14 @@ class AppInteractionRequest(BaseModel):
     trace_id: str = Field(..., description="Trace ID linking to the intervention lifecycle")
     user_id: str = Field(..., description="User ID")
     intervention_instance_id: Optional[str] = Field(None, description="Intervention instance ID")
-    event_type: str = Field(..., description="Event type: 'shown', 'tapped', or 'dismissed'")
+    event_type: str = Field(..., description="Event type: 'shown', 'tapped', 'dismissed', 'flow_completed', 'flow_reset', 'intervention_saved', 'intervention_unsaved', 'flow_requested', 'intervention_requested'")
     timestamp: datetime = Field(..., description="Event timestamp")
+    payload: Optional[Dict[str, Any]] = Field(None, description="Optional JSON payload for event-specific data")
+
+
+class ResetUserDataRequest(BaseModel):
+    """Request body for /user/reset endpoint."""
+    scope: str = Field(default="all", description="Reset scope: 'all', 'flows', or 'saved'")
 
 
 

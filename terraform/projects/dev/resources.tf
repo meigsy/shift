@@ -322,6 +322,11 @@ resource "google_bigquery_table" "app_interactions" {
     "name": "timestamp",
     "type": "TIMESTAMP",
     "mode": "REQUIRED"
+  },
+  {
+    "name": "payload",
+    "type": "JSON",
+    "mode": "NULLABLE"
   }
 ]
 EOF

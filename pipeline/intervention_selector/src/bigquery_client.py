@@ -435,6 +435,156 @@ class BigQueryClient:
             logger.warning(f"Error querying surface preferences (returning empty): {e}")
             return {}
 
+    def has_completed_flow(self, user_id: str, flow_id: str, flow_version: str = "v1") -> bool:
+        """Check if user has completed a specific flow version.
+        
+        Looks for latest flow_completed event for the flow_id/version, then checks
+        if there's a later flow_reset event that would invalidate it.
+        
+        Args:
+            user_id: User ID
+            flow_id: Flow ID (e.g., "getting_started")
+            flow_version: Flow version (e.g., "v1")
+            
+        Returns:
+            True if flow is completed (not reset), False otherwise
+        """
+        query = f"""
+            WITH cte_events AS (
+                SELECT
+                    event_type,
+                    JSON_EXTRACT_SCALAR(payload, '$.flow_id') AS flow_id,
+                    JSON_EXTRACT_SCALAR(payload, '$.flow_version') AS flow_version,
+                    JSON_EXTRACT_SCALAR(payload, '$.scope') AS scope,
+                    timestamp
+                FROM `{self.project_id}.{self.dataset_id}.app_interactions`
+                WHERE user_id = @user_id
+                  AND event_type IN ('flow_completed', 'flow_reset')
+                  AND (
+                    JSON_EXTRACT_SCALAR(payload, '$.flow_id') = @flow_id
+                    OR JSON_EXTRACT_SCALAR(payload, '$.scope') = 'all'
+                    OR JSON_EXTRACT_SCALAR(payload, '$.scope') = 'flows'
+                  )
+                ORDER BY timestamp DESC
+            )
+            SELECT
+                event_type,
+                flow_id,
+                flow_version,
+                timestamp
+            FROM cte_events
+            LIMIT 1
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+                bigquery.ScalarQueryParameter("flow_id", "STRING", flow_id),
+            ]
+        )
+        
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+            
+            for row in results:
+                if row.event_type == "flow_completed":
+                    # Check if flow_version matches
+                    if row.flow_version == flow_version or (row.flow_version is None and flow_version == "v1"):
+                        return True
+                elif row.event_type == "flow_reset":
+                    # Reset found - flow is not completed
+                    return False
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking flow completion: {e}", exc_info=True)
+            return False
+
+    def has_recent_flow_request(self, user_id: str, flow_id: str, minutes: int = 5) -> bool:
+        """Check if user has requested a flow recently (e.g., via About SHIFT).
+        
+        Args:
+            user_id: User ID
+            flow_id: Flow ID (e.g., "getting_started")
+            minutes: Time window in minutes (default 5)
+            
+        Returns:
+            True if flow_requested event found in last N minutes
+        """
+        query = f"""
+            SELECT
+                COUNT(*) as count
+            FROM `{self.project_id}.{self.dataset_id}.app_interactions`
+            WHERE user_id = @user_id
+              AND event_type = 'flow_requested'
+              AND JSON_EXTRACT_SCALAR(payload, '$.flow_id') = @flow_id
+              AND timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @minutes MINUTE)
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+                bigquery.ScalarQueryParameter("flow_id", "STRING", flow_id),
+                bigquery.ScalarQueryParameter("minutes", "INT64", minutes),
+            ]
+        )
+        
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+            
+            for row in results:
+                return row.count > 0
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking flow request: {e}", exc_info=True)
+            return False
+
+    def get_existing_getting_started_instance(self, user_id: str, intervention_key: str) -> Optional[str]:
+        """Check if user already has an active getting_started intervention instance for a specific key.
+        
+        Checks for an existing instance with the same intervention_key and status='created'.
+        This prevents duplicate instances of the same version before completion.
+        
+        Args:
+            user_id: User ID
+            intervention_key: Specific intervention key to check (e.g., "getting_started_v1")
+            
+        Returns:
+            Intervention instance ID if exists, None otherwise
+        """
+        query = f"""
+            SELECT
+                intervention_instance_id
+            FROM `{self.project_id}.{self.dataset_id}.intervention_instances`
+            WHERE user_id = @user_id
+              AND intervention_key = @intervention_key
+              AND status = 'created'
+            ORDER BY created_at DESC
+            LIMIT 1
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+                bigquery.ScalarQueryParameter("intervention_key", "STRING", intervention_key),
+            ]
+        )
+        
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+            
+            for row in results:
+                return row.intervention_instance_id
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error checking existing getting_started instance: {e}", exc_info=True)
+            return None
+
     def get_interventions_for_user(
         self, user_id: str, status: str = "created"
     ) -> list[dict]:

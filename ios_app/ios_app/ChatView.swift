@@ -14,6 +14,7 @@ struct ComposerHeightKey: PreferenceKey {
 
 struct ChatView: View {
     @ObservedObject var chatViewModel: ChatViewModel
+    let authViewModel: AuthViewModel
     @State private var draftText: String = ""
     @FocusState private var isInputFocused: Bool
     @State private var composerHeight: CGFloat = 0
@@ -66,9 +67,6 @@ struct ChatView: View {
             }
             .onPreferenceChange(ComposerHeightKey.self) { newHeight in
                 if abs(newHeight - composerHeight) > 0.5 { composerHeight = newHeight }
-            }
-            .onAppear {
-                chatViewModel.checkOnboardingCard()
             }
             .toolbar {
                 #if DEBUG
@@ -136,8 +134,8 @@ struct ChatView: View {
                 },
                 onComplete: {
                     activeExperience = nil
-                    chatViewModel.markOnboardingCompleted()
-                    chatViewModel.removeCard(cardId: "onboarding_get_started")
+                    // Onboarding completion is now tracked via backend interaction events
+                    // Backend will stop showing getting_started after flow_completed event
                     let growPrompt = """
 Let's begin with a quick check-in.
 
@@ -147,7 +145,9 @@ O: What options feel realistic today?
 W: What will you do next?
 """
                     chatViewModel.injectMessage(role: "assistant", text: growPrompt)
-                }
+                },
+                interactionService: makeInteractionService(),
+                userId: authViewModel.user?.userId ?? ""
             )
         case .breathing60s:
             BreathingExperienceView(
@@ -160,6 +160,18 @@ W: What will you do next?
                 }
             )
         }
+    }
+    
+    // MARK: - Services
+    
+    private func makeInteractionService() -> InteractionService? {
+        guard authViewModel.user?.userId != nil else { return nil }
+        let apiClient = ApiClient(
+            baseURL: authViewModel.backendBaseURL,
+            idToken: authViewModel.idToken
+        )
+        apiClient.setToken(authViewModel.idToken)
+        return InteractionService(apiClient: apiClient)
     }
     
     #if DEBUG

@@ -10,6 +10,8 @@ import SwiftUI
 struct OnboardingExperienceView: View {
     let onClose: () -> Void
     let onComplete: () -> Void
+    let interactionService: InteractionService?
+    let userId: String
     
     @State private var currentPage = 0
     
@@ -97,7 +99,7 @@ struct OnboardingExperienceView: View {
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
             Button {
-                onComplete()
+                handleStart()
             } label: {
                 Text("Start")
                     .font(.headline)
@@ -129,6 +131,38 @@ struct OnboardingExperienceView: View {
             Spacer()
         }
         .padding(.horizontal)
+    }
+    
+    // MARK: - Actions
+    
+    private func handleStart() {
+        // Emit flow_completed event
+        if let service = interactionService {
+            Task {
+                do {
+                    try await service.recordFlowEvent(
+                        eventType: "flow_completed",
+                        userId: userId,
+                        payload: [
+                            "flow_id": GettingStartedFlow.flowId,
+                            "flow_version": GettingStartedFlow.version
+                        ]
+                    )
+                    print("✅ Recorded flow_completed for getting_started")
+                } catch {
+                    print("❌ Failed to record flow_completed: \(error.localizedDescription)")
+                    // Continue with completion even if event recording fails
+                }
+                
+                // Trigger context refresh to update UI
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .contextRefreshNeeded, object: nil)
+                }
+            }
+        }
+        
+        // Call completion handler (dismisses experience and injects GROW prompt)
+        onComplete()
     }
 }
 

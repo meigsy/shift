@@ -131,39 +131,6 @@ class ChatViewModel: ObservableObject {
     }
     
     // MARK: - Onboarding
-    
-    private let hasCompletedOnboardingKey = "com.shift.ios-app.hasCompletedOnboarding"
-    
-    func hasCompletedOnboarding() -> Bool {
-        return UserDefaults.standard.bool(forKey: hasCompletedOnboardingKey)
-    }
-    
-    func markOnboardingCompleted() {
-        UserDefaults.standard.set(true, forKey: hasCompletedOnboardingKey)
-    }
-    
-    func checkOnboardingCard() {
-        guard !hasCompletedOnboarding() else { return }
-        
-        // Check if onboarding card already exists
-        let onboardingCardExists = messages.contains { message in
-            if case .card(let card) = message.kind {
-                return card.id == "onboarding_get_started"
-            }
-            return false
-        }
-        
-        if !onboardingCardExists {
-            let onboardingCard = ChatCard(
-                id: "onboarding_get_started",
-                title: "Get started with SHIFT",
-                body: "Learn what SHIFT is and kick off your first check-in.",
-                primaryCTA: CardAction(
-                    label: "Get started",
-                    action: .openExperience(.onboarding)
-                )
-            )
-            insertCard(onboardingCard)
-        }
-    }
+    // Onboarding logic is now handled by backend selector via /context endpoint
+    // Removed UserDefaults-based onboarding check - backend decides when to show getting_started
 }

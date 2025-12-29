@@ -34,6 +34,29 @@ def select_intervention(
         - nudge_type
         Or None if no intervention should be selected
     """
+    # Check if getting_started flow is completed
+    # If not completed OR user explicitly requested it (About SHIFT), prioritize it
+    getting_started_completed = bq_client.has_completed_flow(user_id, "getting_started", "v1")
+    flow_requested = bq_client.has_recent_flow_request(user_id, "getting_started", minutes=5)
+    
+    if not getting_started_completed or flow_requested:
+        # Try to get getting_started intervention by key
+        from src.catalog import get_intervention
+        getting_started_intervention = get_intervention("getting_started_v1", bq_client)
+        if getting_started_intervention:
+            logger.info(f"Selecting getting_started intervention for user {user_id} (completed={getting_started_completed}, requested={flow_requested})")
+            return {
+                "intervention_key": "getting_started_v1",
+                "metric": getting_started_intervention.get("metric", "onboarding"),
+                "level": getting_started_intervention.get("level", "default"),
+                "surface": getting_started_intervention.get("surface", "chat_card"),
+                "title": getting_started_intervention["title"],
+                "body": getting_started_intervention["body"],
+                "nudge_type": getting_started_intervention.get("nudge_type", "info"),
+            }
+        else:
+            logger.warning(f"getting_started_v1 intervention not found in catalog for user {user_id}")
+    
     # MVP: Only handle stress metric
     metric = "stress"
     stress_score = state_estimate.get("stress")

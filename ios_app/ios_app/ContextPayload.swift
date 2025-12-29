@@ -30,10 +30,12 @@ struct StateEstimate: Decodable {
 struct ContextPayload: Decodable {
     let stateEstimate: StateEstimate?
     let interventions: [Intervention]
+    let savedInterventions: [String]?
     
     enum CodingKeys: String, CodingKey {
         case stateEstimate = "state_estimate"
         case interventions
+        case savedInterventions = "saved_interventions"
     }
 }
 

@@ -14,6 +14,7 @@ struct HomeView: View {
     
     @State private var stateEstimate: StateEstimate?
     @State private var interventions: [Intervention] = []
+    @State private var savedInterventions: [String] = []
     @State private var isLoading = false
     @State private var loadError: String?
     // Track which (intervention_instance_id, surface) combinations have logged "shown" events
@@ -38,6 +39,11 @@ struct HomeView: View {
             }
             .refreshable {
                 await loadContext()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .contextRefreshNeeded)) { _ in
+                Task {
+                    await loadContext()
+                }
             }
         }
     }
@@ -73,7 +79,8 @@ struct HomeView: View {
                             intervention: intervention,
                             stateEstimate: stateEstimate,
                             interactionService: interactionService,
-                            userId: authViewModel.user?.userId ?? ""
+                            userId: authViewModel.user?.userId ?? "",
+                            savedInterventions: savedInterventions
                         )
                     } label: {
                         actionTile(for: intervention)
@@ -119,6 +126,7 @@ struct HomeView: View {
                 self.stateEstimate = payload.stateEstimate
                 // Interventions are already ordered by created_at DESC from backend
                 self.interventions = payload.interventions
+                self.savedInterventions = payload.savedInterventions ?? []
             }
         } catch {
             await MainActor.run {

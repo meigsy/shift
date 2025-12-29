@@ -31,7 +31,7 @@ struct AppShellView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .leading) {
-                ChatView(chatViewModel: chatViewModel)
+                ChatView(chatViewModel: chatViewModel, authViewModel: authViewModel)
                 
                 SidePanelOverlay(
                     isOpen: $isSidePanelOpen,
