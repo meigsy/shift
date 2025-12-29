@@ -11,6 +11,7 @@ struct SidePanelOverlay: View {
     @Binding var isOpen: Bool
     let chatViewModel: ChatViewModel
     let authViewModel: AuthViewModel
+    var onOpenExperience: ((ExperienceID) -> Void)?
     @State private var showSettings: Bool = false
     @State private var isResetting: Bool = false
     @State private var resetError: String?
@@ -262,28 +263,32 @@ struct SidePanelOverlay: View {
     
     private func handleAboutShift() {
         guard let userId = authViewModel.user?.userId,
-              let service = interactionService else { return }
+              let service = interactionService else {
+            return
+        }
         
+        // Fire-and-forget: record flow_requested event (non-blocking)
         Task {
             do {
-                // Post flow_requested event
                 try await service.recordFlowEvent(
                     eventType: "flow_requested",
                     userId: userId,
-                    payload: ["flow_id": GettingStartedFlow.flowId]
+                    payload: [
+                        "flow_id": GettingStartedFlow.flowId,
+                        "flow_version": GettingStartedFlow.version
+                    ]
                 )
-                
-                // Refresh context to get getting_started intervention
-                await refreshContext()
-                
-                await MainActor.run {
-                    withAnimation {
-                        isOpen = false
-                    }
-                }
             } catch {
-                print("❌ Failed to request About SHIFT: \(error.localizedDescription)")
+                print("❌ Failed to record flow_requested event: \(error.localizedDescription)")
             }
+        }
+        
+        // Immediately open experience (don't wait for server response)
+        onOpenExperience?(.onboarding)
+        
+        // Close side panel
+        withAnimation {
+            isOpen = false
         }
     }
     
@@ -318,8 +323,148 @@ struct SidePanelOverlay: View {
     }
     
     private func refreshContext() async {
-        // Post notification to refresh context (HomeView listens to this)
+        // #region agent log
+        let logEntry1: [String: Any] = [
+            "location": "SidePanelOverlay.swift:320",
+            "message": "refreshContext called - fetching context directly",
+            "data": [:],
+            "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "C"
+        ]
+        if let logData = try? JSONSerialization.data(withJSONObject: logEntry1),
+           let logStr = String(data: logData, encoding: .utf8) {
+            try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+        }
+        // #endregion
+        
+        // Post notification to refresh context (HomeView listens to this if it exists)
         NotificationCenter.default.post(name: .contextRefreshNeeded, object: nil)
+        
+        // Also fetch context directly and route chat_card interventions to ChatView
+        // (since SidePanelOverlay is in ChatView's hierarchy, not HomeView's)
+        if let contextService = contextService {
+            do {
+                let payload = try await contextService.fetchContext()
+                
+                // #region agent log
+                let logEntry2: [String: Any] = [
+                    "location": "SidePanelOverlay.swift:335",
+                    "message": "Context fetched directly - FULL DETAILS",
+                    "data": [
+                        "interventionsCount": payload.interventions.count,
+                        "chatCardCount": payload.interventions.filter { $0.surface == "chat_card" }.count,
+                        "allInterventions": payload.interventions.map { [
+                            "key": $0.interventionKey,
+                            "surface": $0.surface,
+                            "title": $0.title
+                        ]}
+                    ],
+                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C"
+                ]
+                if let logData = try? JSONSerialization.data(withJSONObject: logEntry2),
+                   let logStr = String(data: logData, encoding: .utf8) {
+                    try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                }
+                // #endregion
+                
+                // Route chat_card interventions to ChatView
+                let chatCardInterventions = payload.interventions.filter { $0.surface == "chat_card" }
+                
+                // #region agent log
+                let logEntry3: [String: Any] = [
+                    "location": "SidePanelOverlay.swift:468",
+                    "message": "Filtering chat_card interventions",
+                    "data": [
+                        "totalInterventions": payload.interventions.count,
+                        "chatCardCount": chatCardInterventions.count,
+                        "chatCardKeys": chatCardInterventions.map { $0.interventionKey }
+                    ],
+                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C"
+                ]
+                if let logData = try? JSONSerialization.data(withJSONObject: logEntry3),
+                   let logStr = String(data: logData, encoding: .utf8) {
+                    try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                }
+                // #endregion
+                
+                for intervention in chatCardInterventions {
+                    // Encode intervention as JSON data to pass through NotificationCenter
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    if let jsonData = try? encoder.encode(intervention),
+                       let jsonString = String(data: jsonData, encoding: .utf8) {
+                        // #region agent log
+                        let logEntry4: [String: Any] = [
+                            "location": "SidePanelOverlay.swift:486",
+                            "message": "Posting chatCardInterventionReceived notification",
+                            "data": [
+                                "interventionKey": intervention.interventionKey,
+                                "interventionInstanceId": intervention.interventionInstanceId,
+                                "jsonStringLength": jsonString.count
+                            ],
+                            "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "C"
+                        ]
+                        if let logData = try? JSONSerialization.data(withJSONObject: logEntry4),
+                           let logStr = String(data: logData, encoding: .utf8) {
+                            try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                        }
+                        // #endregion
+                        
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .chatCardInterventionReceived,
+                                object: nil,
+                                userInfo: ["intervention_json": jsonString]
+                            )
+                        }
+                    } else {
+                        // #region agent log
+                        let logEntry5: [String: Any] = [
+                            "location": "SidePanelOverlay.swift:506",
+                            "message": "Failed to encode intervention as JSON",
+                            "data": ["interventionKey": intervention.interventionKey],
+                            "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "C"
+                        ]
+                        if let logData = try? JSONSerialization.data(withJSONObject: logEntry5),
+                           let logStr = String(data: logData, encoding: .utf8) {
+                            try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                        }
+                        // #endregion
+                    }
+                }
+            } catch {
+                // #region agent log
+                let logEntry3: [String: Any] = [
+                    "location": "SidePanelOverlay.swift:357",
+                    "message": "Failed to fetch context",
+                    "data": ["error": error.localizedDescription],
+                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C"
+                ]
+                if let logData = try? JSONSerialization.data(withJSONObject: logEntry3),
+                   let logStr = String(data: logData, encoding: .utf8) {
+                    try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                }
+                // #endregion
+            }
+        }
+        
         await loadSavedInterventions()
     }
     

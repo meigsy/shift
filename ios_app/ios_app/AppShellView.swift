@@ -13,6 +13,7 @@ struct AppShellView: View {
     
     @StateObject private var chatViewModel: ChatViewModel
     @State private var isSidePanelOpen: Bool = false
+    @State private var activeExperience: ExperienceID? = nil
     
     init(authViewModel: AuthViewModel, conversationalAgentBaseURL: String) {
         self.authViewModel = authViewModel
@@ -31,12 +32,17 @@ struct AppShellView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .leading) {
-                ChatView(chatViewModel: chatViewModel, authViewModel: authViewModel)
+                ChatView(
+                    chatViewModel: chatViewModel,
+                    authViewModel: authViewModel,
+                    activeExperience: $activeExperience
+                )
                 
                 SidePanelOverlay(
                     isOpen: $isSidePanelOpen,
                     chatViewModel: chatViewModel,
-                    authViewModel: authViewModel
+                    authViewModel: authViewModel,
+                    onOpenExperience: { activeExperience = $0 }
                 )
             }
             .toolbar {
