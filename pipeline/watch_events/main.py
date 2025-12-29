@@ -652,13 +652,9 @@ async def get_context(
                 "fatigue": state_estimate["fatigue"],
             }
 
-        # Get saved interventions
-        saved_intervention_keys = repo.get_saved_interventions(user_id=user_id)
-
         return {
             "state_estimate": state_payload,
             "interventions": interventions,
-            "saved_interventions": saved_intervention_keys,
         }
     except HTTPException:
         raise

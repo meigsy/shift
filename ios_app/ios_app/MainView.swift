@@ -99,8 +99,7 @@ struct MainView: View {
                     intervention: intervention,
                     stateEstimate: nil, // Could fetch from context if needed
                     interactionService: interactionService,
-                    userId: authViewModel.user?.userId ?? "",
-                    savedInterventions: [] // Banners from polling don't track saved state
+                    userId: authViewModel.user?.userId ?? ""
                 )
             }
         }

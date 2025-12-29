@@ -12,12 +12,9 @@ struct InterventionDetailView: View {
     let stateEstimate: StateEstimate?
     let interactionService: InteractionService?
     let userId: String
-    let savedInterventions: [String]
-    
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var chatViewModel: ChatViewModel
     @State private var isWhyExpanded = false
-    @State private var isSaved: Bool = false
     @State private var showFullScreenFlow = false
     
     var body: some View {
@@ -60,9 +57,6 @@ struct InterventionDetailView: View {
             )
             .environmentObject(chatViewModel)
         }
-        .onAppear {
-            isSaved = savedInterventions.contains(intervention.interventionKey)
-        }
     }
     
     private var actionButtons: some View {
@@ -84,17 +78,6 @@ struct InterventionDetailView: View {
             }
             .buttonStyle(.bordered)
             
-            Button {
-                handleSaveToggle()
-            } label: {
-                HStack {
-                    Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
-                    Text(isSaved ? "Saved" : "Save")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            
             Button(role: .cancel) {
                 recordInteraction(eventType: "dismissed")
                 dismiss()
@@ -103,30 +86,6 @@ struct InterventionDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderless)
-        }
-    }
-    
-    private func handleSaveToggle() {
-        guard let interactionService = interactionService else { return }
-        
-        let eventType = isSaved ? "intervention_unsaved" : "intervention_saved"
-        let payload = ["intervention_key": intervention.interventionKey]
-        
-        Task {
-            do {
-                try await interactionService.recordFlowEvent(
-                    eventType: eventType,
-                    userId: userId,
-                    payload: payload
-                )
-                await MainActor.run {
-                    isSaved.toggle()
-                    // Refresh context to update saved list
-                    NotificationCenter.default.post(name: .contextRefreshNeeded, object: nil)
-                }
-            } catch {
-                print("❌ Failed to \(eventType): \(error.localizedDescription)")
-            }
         }
     }
     

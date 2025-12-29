@@ -41,7 +41,6 @@ def test_context_returns_getting_started(client, mock_user):
         mock_repo_instance.get_latest_state_estimate.return_value = None
         mock_repo_instance.get_created_interventions_for_user.return_value = []
         mock_repo_instance.get_catalog_for_keys.return_value = {}
-        mock_repo_instance.get_saved_interventions.return_value = []
         
         # Make the request
         response = client.get("/context")
@@ -129,7 +128,6 @@ def test_context_hides_getting_started_when_completed(client, mock_user):
         mock_repo_instance.get_latest_state_estimate.return_value = None
         mock_repo_instance.get_created_interventions_for_user.return_value = []
         mock_repo_instance.get_catalog_for_keys.return_value = {}
-        mock_repo_instance.get_saved_interventions.return_value = []
         
         # Make the request
         response = client.get("/context")
@@ -168,7 +166,6 @@ def test_getting_started_has_unique_trace_ids(client, mock_user):
         mock_repo_instance.get_latest_state_estimate.return_value = None
         mock_repo_instance.get_created_interventions_for_user.return_value = []
         mock_repo_instance.get_catalog_for_keys.return_value = {}
-        mock_repo_instance.get_saved_interventions.return_value = []
         
         # Make first request
         response1 = client.get("/context")
