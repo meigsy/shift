@@ -10,26 +10,47 @@ class AgentService:
 
     async def chat_stream(self, message: str, thread_id: str | None = None):
         full_thread_id = self._get_thread_id(thread_id)
+        
+        # WORKAROUND Phase 1: Store user_id in tool function attribute and middleware
+        from agent import update_user_context
+        from middleware import set_middleware_user_id
+        update_user_context._user_id = self.user_id
+        set_middleware_user_id(self.user_id)
+
+        # Track what we've already yielded to avoid duplicates
+        last_yielded_length = 0
 
         async for chunk in self.agent.astream(
             {"messages": [{"role": "user", "content": message}]},
-            config={"configurable": {"thread_id": full_thread_id}},
+            config={
+                "configurable": {"thread_id": full_thread_id},
+                "runtime": {"user_id": self.user_id}  # Pass to middleware
+            },
             stream_mode="values"
         ):
             if chunk and "messages" in chunk:
                 last_msg = chunk["messages"][-1]
-                if hasattr(last_msg, "content") and last_msg.content:
-                    content = last_msg.content
-                    # Handle both string and list content (tool calls return list)
-                    if isinstance(content, str):
-                        yield content
-                    elif isinstance(content, list):
-                        # Extract text from content blocks
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                yield block.get("text", "")
-                            elif isinstance(block, str):
-                                yield block
+                
+                # ONLY yield if it's an AI/assistant message (not user or tool messages)
+                if hasattr(last_msg, "type") and last_msg.type == "ai":
+                    if hasattr(last_msg, "content"):
+                        content = last_msg.content
+                        if isinstance(content, str):
+                            # Only yield new content (avoid re-yielding same text)
+                            if len(content) > last_yielded_length:
+                                yield content[last_yielded_length:]
+                                last_yielded_length = len(content)
+                        elif isinstance(content, list):
+                            # Handle list content (tool calls return text in list format)
+                            text_content = ""
+                            for item in content:
+                                if hasattr(item, "text"):
+                                    text_content += item.text
+                                elif isinstance(item, dict) and "text" in item:
+                                    text_content += item["text"]
+                            if text_content and len(text_content) > last_yielded_length:
+                                yield text_content[last_yielded_length:]
+                                last_yielded_length = len(text_content)
 
 
 if __name__ == "__main__":
