@@ -117,29 +117,58 @@ Cards never collect input and never replace chat.
 
 ## Card → Chat Contract (Critical)
 
-Cards do not “fake” user input.
+Cards do not "fake" user input or collect data directly. They trigger agent conversations via structured events.
 
 ### On Card Tap
-- The app emits a structured **card event** into the chat system.
+- The app sends a `/tool_event` request to the agent service with structured event data.
 
-Example (conceptual):
+**Event Schema:**
+```json
+{
+  "type": "card_tapped",
+  "intervention_key": "stress_checkin",
+  "suggested_action": "rate_stress_1_to_5",
+  "context": "User tapped stress check-in card",
+  "timestamp": "2025-01-15T10:30:00Z"
+}
 ```
 
-type: card_event
-card_id: <id>
-card_kind: intervention | check_in | follow_up
-payload: minimal contextual data
+**iOS Implementation:**
+```swift
+apiClient.post("/tool_event", body: [
+    "type": "card_tapped",
+    "intervention_key": card.interventionKey,
+    "suggested_action": card.suggestedAction,
+    "context": "User tapped \(card.title) card"
+])
+```
 
+### Agent Response
+- Agent receives event via middleware (context injection, gating)
+- Agent processes event and responds with appropriate message or action
+- Response streams to iOS via `/chat` endpoint (SSE)
+- iOS displays agent response in chat interface
+
+**Response Example:**
+```json
+{
+  "message": "Quick check-in: How stressed do you feel (0-10)?",
+  "ui_hint": "rating_scale",
+  "metadata": {
+    "conversation_id": "uuid",
+    "requires_response": true
+  }
+}
 ```
 
 ### Agent Responsibility
 - The agent system prompt must:
-  - Detect card events
-  - Initiate the appropriate conversational flow
+  - Detect card events via `/tool_event` endpoint
+  - Initiate the appropriate conversational flow based on event type and context
   - Ask questions and guide interaction in chat
+  - Use `update_user_context` tool when user provides information
 
-Chat owns the flow.  
-Cards only initiate it.
+**Key Principle:** Chat owns the flow. Cards only initiate it via structured events.
 
 ---
 

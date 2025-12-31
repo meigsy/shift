@@ -1,6 +1,6 @@
 # SHIFT Fitness OS
 
-**An ELT-driven health behavior system: Apple Watch + Withings → pipelines → state → intervention selector → iOS delivery.**
+**An ELT-driven health behavior system: Apple Watch + Withings → pipelines → state → agent (LangChain) → iOS delivery.**
 
 ---
 
@@ -15,7 +15,7 @@ SHIFT is a **personal health operating system**:
 
 **Core philosophy**: Better health comes from *small, perfectly-timed actions*, not dashboards.
 
-**Flow**: Data → State → Intervention → Delivery → Learning → Refinement
+**Flow**: Data → State → Agent (context-aware decisions) → Delivery → Learning → Refinement
 
 **Status**: ✅ End-to-end pipeline operational. All infrastructure in Terraform. See `DEVELOPMENT.md` for progress tracking.
 
@@ -26,16 +26,26 @@ SHIFT is a **personal health operating system**:
 ### System Flow
 
 ```
-WATCH → HealthKit → iPhone → Pub/Sub → State Estimator → State → Selector → Notification → User → Outcomes → Learning
+WATCH → HealthKit → iPhone → Pub/Sub → State Estimator → BigQuery (state_estimates)
+                                                                    ↓
+User/System Events → Agent (LangChain 1.0) → iOS
+                       ↑
+              Middleware (gating, context injection)
 ```
+
+### Architecture Philosophy
+
+**Key Principle:**
+- **Data Pipelines** handle ELT (Extract, Load, Transform) - deterministic processing
+- **Agent** handles decisions (what to do, when to notify, how to respond) - context-aware orchestration
 
 ### Layers
 
 1. **Input** — Wearables, chat, app interactions
-2. **State Estimation** — SQL pipelines infer recovery/readiness/stress/fatigue
-3. **Recommendation** — Preferences + rules select the right intervention
-4. **Delivery** — Push notifications (trigger) + app pull (full content)
-5. **Learning** — Completions/dismissals update preferences
+2. **State Estimation** — SQL pipelines infer recovery/readiness/stress/fatigue (stored in BigQuery)
+3. **Agent Orchestration** — LangChain 1.0 agent with middleware stack makes context-aware decisions
+4. **Delivery** — Agent responses via `/chat` or `/tool_event`, push notifications when appropriate
+5. **Learning** — User interactions update agent context via `update_user_context` tool
 
 ### Principles
 
@@ -67,7 +77,10 @@ shift/
 │   │   └── User management
 │   ├── state_estimator/   # State estimation pipeline
 │   │   └── → stress, recovery, fatigue, readiness
-│   └── intervention_selector/   # Cloud Function: Intervention selection (✅ operational)
+│   └── conversational_agent/   # LangChain 1.0 agent service (✅ operational)
+│       ├── Agent orchestration (GROW coaching model)
+│       ├── Middleware stack (gating, context injection)
+│       └── Tools (update_user_context, send_notification)
 ├── terraform/             # GCP infrastructure
 │   ├── projects/dev/
 │   └── projects/prod/
@@ -110,15 +123,28 @@ Each pipeline is a standalone module with:
 
 | Pipeline | Input | Output |
 |----------|-------|--------|
-| `state_estimator` | All events | stress, recovery, fatigue, readiness scores |
-| `interaction_preferences` | app_interactions, chat_events | User preference model |
-| `intervention_selector` | State + preferences + catalog | Selected intervention(s) |
+| `state_estimator` | All events | stress, recovery, fatigue, readiness scores (BigQuery) |
+| `conversational_agent` | State estimates + user events + conversation | Agent decisions and responses |
 
-### Reference Data
+### Agent Service
 
-| Pipeline | Source | Output |
-|----------|--------|--------|
-| `intervention_catalog` | Google Sheet (SME-edited) | BigQuery reference table |
+The `conversational_agent` pipeline is the orchestration layer for all user interactions:
+
+- **Endpoints:**
+  - `/chat` - User text messages (SSE streaming)
+  - `/tool_event` - Structured events from iOS (card taps, app lifecycle, flow completions)
+  
+- **Middleware Stack:**
+  - `NotificationGatingMiddleware` - Deterministic filtering (preferences, quiet hours, rate limits)
+  - `ContextInjectionMiddleware` - Progressive context disclosure (profile, goals, recent events, conversation)
+  
+- **Tools:**
+  - `update_user_context` - Agent maintains user state (profile, goals, context) in Firestore
+  - `send_notification` - Proactive push notifications when warranted
+  
+- **Data Storage:**
+  - **Firestore**: Agent state (user context, conversation history) - fast reads/writes
+  - **BigQuery**: Analytics (state estimates, app interactions) - batch reads for context injection
 
 ---
 
@@ -130,136 +156,160 @@ Each pipeline is a standalone module with:
 └─────────────────┘     │
                         │
 ┌─────────────────┐     │     ┌─────────────────┐     ┌──────────────────────┐
-│ withings_events │────▶├────▶│ state_estimator │────▶│ intervention_selector│────▶ Push ────▶ iOS
-└─────────────────┘     │     └─────────────────┘     └──────────────────────┘
-                        │                                       ▲
+│ withings_events │────▶├────▶│ state_estimator │────▶│   BigQuery           │
+└─────────────────┘     │     └─────────────────┘     │   (state_estimates)  │
+                        │                               └──────────────────────┘
 ┌─────────────────┐     │                                       │
 │   chat_events   │────▶┘                                       │
-└─────────────────┘────▶┐                                       │
-                        │                                       │
-┌─────────────────┐     │     ┌────────────────────────┐        │
-│ app_interactions│────▶┘────▶│interaction_preferences │────────┘
-└─────────────────┘           └────────────────────────┘
+└─────────────────┘                                             │
+                                                                 │
+┌─────────────────┐     ┌──────────────────────────┐          │
+│ app_interactions│────▶│  Agent (LangChain 1.0)    │◀─────────┘
+└─────────────────┘     │  + Middleware Stack        │
+                        │  + Context Injection       │
+┌─────────────────┐     │  + Tools                   │
+│  /tool_event    │────▶└──────────────────────────┘
+│  (iOS events)   │              │
+└─────────────────┘              │
+                                 │
+                        ┌─────────▼─────────┐
+                        │  /chat responses  │
+                        │  Push notifications│
+                        └───────────────────┘
 ```
 
-Target latency: **20–30 seconds** end-to-end.
+**Pipeline Flow:**
+1. Watch → `watch_events` → BigQuery (raw data)
+2. BigQuery → `state_estimator` (Pub/Sub triggered) → `state_estimates` table
+3. Agent middleware reads `state_estimates` for context injection
+4. User events (`/tool_event`, `/chat`) → Agent → Responses/Notifications
+
+Target latency: **20–30 seconds** for data pipeline, **<2 seconds** for agent responses (p95).
 
 ---
 
-## Delivery Model
+## Agent Service Endpoints
 
-1. `intervention_selector` picks intervention
-2. Backend sends push notification via APNs
-3. iOS wakes, fetches full intervention details
-4. iOS renders the intervention
-5. User interaction → `app_interactions` → learning
+### `/chat` (User Messages)
 
-Push is the trigger; app pulls full payload.
+**Endpoint**: `POST /chat` (SSE streaming)
 
-### `/context` Endpoint
+**Purpose**: Receives user text messages and returns agent responses via Server-Sent Events.
 
-**Endpoint**: `GET /context` (read-only, authenticated)
+**Request Schema:**
+```json
+{
+  "message": "I'm feeling really stressed today",
+  "timestamp": "2025-01-15T10:30:00Z"
+}
+```
 
-**Purpose**: Single aggregator endpoint that returns all data needed by the Home screen in one call.
+**Response**: Streams agent response as SSE chunks.
 
-**Authentication**: User identity is derived **only from the auth token** (Bearer token in Authorization header). No `user_id` query parameter is required or trusted.
+**Authentication**: User identity derived from Bearer token in Authorization header.
 
-**Returns**:
-- `state_estimate` (nullable): Latest state estimate with `recovery`, `readiness`, `stress`, `fatigue`, `timestamp`, `trace_id`
-- `interventions`: Array of denormalized intervention instances with `status="created"`, including catalog content (`title`, `body`, etc.)
+### `/tool_event` (Structured Events)
 
-**Constraints**:
-- **Pure read**: Does not run the intervention selector, does not create or update any rows
-- **No side effects**: Only queries `state_estimates`, `intervention_instances`, and `intervention_catalog` tables
-- Interventions are ordered by `created_at DESC` for deterministic Home tile ordering
+**Endpoint**: `POST /tool_event`
 
-### Interaction Event Semantics
+**Purpose**: Receives structured events from iOS and background systems. Agent processes these to make context-aware decisions.
 
-All user interactions are logged implicitly via `POST /app_interactions` with the following event types:
+**Event Types:**
+- `app_opened_first_time` - User's first app launch
+- `app_opened` - Subsequent app launches
+- `card_tapped` - User engaged with an intervention card
+- `rating_submitted` - User provided structured input (1-5 rating)
+- `health_metric_changed` - Background pipeline detected significant change
+- `flow_completed` - User completed a multi-step flow (e.g., getting_started)
 
-- **`shown`**: Intervention was displayed to the user
-  - Logged **at most once per (intervention_instance_id, surface)** combination
-  - Deduplicated client-side to prevent re-logging on Home re-render, navigation back, or pull-to-refresh
-  - Surfaces: `home_tile`, `banner`, `notification`
+**Request Schema:**
+```json
+{
+  "type": "card_tapped",
+  "intervention_key": "stress_checkin",
+  "suggested_action": "rate_stress_1_to_5",
+  "context": "User tapped stress check-in card",
+  "timestamp": "2025-01-15T10:30:00Z"
+}
+```
 
-- **`tapped`**: User explicitly accepted the intervention (primary CTA)
-  - Only logged when user taps "Try it" button in Intervention Detail screen
-  - **NOT** logged for banner/tile taps that only open detail (those are navigation, not acceptance)
+**Response:**
+```json
+{
+  "message": "Quick check-in: How stressed do you feel (0-10)?",
+  "ui_hint": "rating_scale",
+  "metadata": {
+    "conversation_id": "uuid",
+    "requires_response": true
+  }
+}
+```
 
-- **`dismissed`**: User dismissed or skipped the intervention
-  - Logged when user:
-    - Taps "Not now" or "Skip" in Intervention Detail
-    - Dismisses banner via X button or swipe gesture
-    - Banner auto-dismisses after timeout
+### Agent Middleware Stack
 
-**No explicit feedback**: No ratings, surveys, or "Was this helpful?" prompts. All learning is implicit from interaction patterns.
+**NotificationGatingMiddleware:**
+- Deterministic filtering before agent invocation
+- Gates: user preferences, quiet hours, rate limits (4-hour minimum between notifications)
+- Returns `None` to short-circuit (no LLM call) or `state` to continue
+
+**ContextInjectionMiddleware:**
+- Progressive context disclosure into agent prompt
+- Layers: Profile (stable), Global Goals (long-term), Current Focus (active plans), Recent Events (7-day window), Conversation (token-limited)
+- Loads from Firestore (user context) and BigQuery (state estimates, interactions)
+
+### Agent Tools
+
+**update_user_context:**
+- Agent maintains complete user state (Profile, Goals, Context)
+- Updates stored in Firestore for fast access
+- Agent decides what changed based on conversation
+
+**send_notification:**
+- Proactive push notifications when warranted
+- Only used when: user preferences allow, event is significant, message provides clear value
+- Gated by middleware to prevent spam
 
 ---
 
 ## App UX Surfaces (MVP)
 
-### `/context` endpoint (read-only)
+### Chat-First Architecture
 
-The iOS app uses a single read-only aggregator endpoint from the `watch_events` service:
+The iOS app is built around a **chat-first** experience where the conversational agent is the primary interface:
 
-- `GET /context`
-  - **Authentication**: User identity is derived **only from the auth token** (Bearer token in Authorization header). No `user_id` query parameter is required or trusted.
-  - **Pure read**: does not run the selector and does not mutate any tables.
-  - Reads from:
-    - `state_estimates` — latest row for the current user (optional), ordered by `timestamp DESC`.
-    - `intervention_instances` — all rows for the user with `status = "created"`, ordered by `created_at DESC` for deterministic Home tile ordering.
-    - `intervention_catalog` — catalog rows for those interventions.
-  - Returns:
-    - `state_estimate` (nullable): latest state snapshot for Today.
-    - `interventions`: denormalized list of created intervention instances with catalog `title`/`body` and IDs/trace IDs needed for logging.
+- **Chat View** - Primary surface, always accessible
+- **Cards** - Ephemeral affordances that trigger agent conversations via `/tool_event`
+- **Side Panel** - Utility overlay (new chat, past chats, settings)
 
-This same payload can later be reused by a conversational agent without changes.
+### Card → Agent Flow
 
-### Home (Today) screen
+When a user interacts with a card:
 
-The primary app surface is a calm, glanceable Today screen:
+1. iOS sends `/tool_event` with structured event (e.g., `card_tapped`, `flow_completed`)
+2. Agent receives event via middleware (context injection, gating)
+3. Agent responds with appropriate message or action
+4. Response streams to iOS via `/chat` endpoint (SSE)
+5. iOS displays agent response in chat interface
 
-- Reads everything from `/context` in a single call.
-- Shows an optional **Today state** summary if a `state_estimate` exists.
-- Renders **0–3 Action tiles**:
-  - One tile per `intervention_instances` row with `status = "created"`.
-  - **Surface is not a filter** — all created interventions are eligible for tiles regardless of `surface`.
-  - Tiles are ordered by `created_at DESC` (from backend) before taking the first 3 for UX stability and analytics cleanliness.
-  - Each tile displays only catalog `title` and `body`, with no new copy invented.
-  - Tapping a tile opens **Intervention Detail** (does not log `tapped`; only "Try it" button does).
-- Tiles still render even if there is no state estimate.
+**Key Principle**: Cards don't collect input or replace chat. They initiate agent conversations.
 
-### Intervention Detail
+### Conversation Phases
 
-When the user taps a tile, banner, or notification:
+The agent navigates users through three phases:
 
-- Shows the same intervention content:
-  - Title and body from `intervention_catalog`.
-  - Optional expandable **"Why this?"** section derived from the latest `state_estimate`:
-    - Uses soft, non-clinical language (e.g., "based on signals such as..." or "your body may be responding to...").
-    - No medical claims.
-- Actions:
-  - **Try it** → logs `tapped` (explicit acceptance)
-  - **Not now** → logs `dismissed`
-  - **Skip** → logs `dismissed`
-- All actions only write `app_interactions` events; there is no explicit rating UI.
+1. **[Intake]** - Gather profile information (name, age, experience level, preferences)
+2. **[Global Goals]** - Define long-term objectives (healthspan targets, timeline, milestones)
+3. **[Check-ins]** - Ongoing GROW-based guidance (daily/weekly conversations, workout prep, progress tracking)
 
-### In-app banner / toast and push
+Agent detects which phase the user is in and gathers missing information before advancing.
 
-`intervention_selector` still uses `surface` to choose delivery:
+### Getting Started Flow
 
-- **In-app banner/toast**:
-  - Non-blocking, dismissible.
-  - Mirrors the same intervention content as tiles.
-  - Tapping the banner routes to **Intervention Detail**.
-- **Push notification**:
-  - Soft tone trigger.
-  - Deep-link into **Intervention Detail** using the same intervention instance ID.
+The existing multi-page onboarding flow (`getting_started`) is preserved:
 
-Across all of these surfaces:
-
-- Intelligence lives in BigQuery + selector (`state_estimates`, `intervention_instances`, `intervention_catalog`, `app_interactions`).
-- The iOS app only renders what already exists and writes `app_interactions` for implicit feedback.
+- User completes onboarding pages
+- On "Start" button tap, iOS sends `/tool_event` with `flow_completed` event
+- Agent recognizes intake phase complete, initiates global goals conversation
 
 ---
 
@@ -290,10 +340,10 @@ Across all of these surfaces:
 
 ### Interaction Surfaces
 
-- SwiftUI-coded screens
-- Push notifications
-- Deep-link modals
-- Conversational agent
+- **Chat View** - Primary conversational interface (SSE streaming)
+- **Cards** - Ephemeral triggers that send `/tool_event` to agent
+- **Push notifications** - Agent-initiated via `send_notification` tool (when warranted)
+- **Side Panel** - Utility overlay (chat management, settings)
 
 ---
 
@@ -335,9 +385,36 @@ Each pipeline has Terraform for:
 
 ---
 
+## Data Storage Architecture
+
+### Firestore (Agent State, Real-time Access)
+
+**Collections:**
+- `user_context/{user_id}` - UserGoalsAndContext object (Profile, Goals, Context)
+  - Fast reads on every agent invocation
+  - Writes via `update_user_context` tool
+- `agent_conversations/{user_id}/messages` - LangChain checkpointing
+  - Conversation history
+  - Managed by LangGraph persistence
+
+**Access Pattern:** Read/write on every agent interaction (low latency required)
+
+### BigQuery (Analytics, Historical Data)
+
+**Tables:**
+- `state_estimates` - Pipeline-generated health metrics
+  - Written by state_estimator (Pub/Sub triggered)
+  - Read by agent for recent context (via middleware)
+- `app_interactions` - Event log
+  - All tool_events and chat messages
+  - Used for analytics and conversation summarization
+- `watch_events` - Raw biometric data from HealthKit
+
+**Access Pattern:** Batch reads for context injection, async writes for logging
+
 ## Debugging with Traceability
 
-SHIFT includes end-to-end traceability using `trace_id` (UUIDv4) that flows through the entire pipeline from biometrics → watch events → state estimates → interventions → user interactions.
+SHIFT includes end-to-end traceability using `trace_id` (UUIDv4) that flows through the entire pipeline from biometrics → watch events → state estimates → agent decisions → user interactions.
 
 ### Finding a trace_id
 
