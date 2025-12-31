@@ -1,5 +1,75 @@
 # SHIFT Agent Architecture - Implementation Guide
 
+**Document Version:** 3.0  
+**Last Updated:** 2025-12-31  
+**Status:** Phases 0-2 Complete & Deployed, Phase 3 In Progress
+
+---
+
+## Current Status
+
+### ✅ Completed & Deployed
+
+**Phase 0 (Foundation):**
+- Tools: `update_user_context`, `send_notification` (stubs with logging)
+- Middleware: `ContextInjectionMiddleware` (passthrough)
+- System prompt with conversation phases (INTAKE → GLOBAL GOALS → CHECK-INS)
+- 28 tests passing
+
+**Phase 1 (Real Context Management):**
+- Firestore append-only versioning (`user_context/{user_id}/versions/{timestamp}`)
+- Real `update_user_context` tool (regex parsing)
+- Real `ContextInjectionMiddleware` (loads from Firestore, injects to messages)
+- **Production URL:** `https://conversational-agent-meqmyk4w5q-uc.a.run.app`
+- **Verified:** Context persistence, agent recall, versioning working
+
+**Phase 2 (Tool Events):**
+- `/tool_event` endpoint (JSON response)
+- `ToolEventBody` schema validation
+- `NotificationGatingMiddleware` (stub for Phase 4)
+- System prompt includes SYSTEM EVENTS section
+- Streaming echo fix (filter AI messages only)
+- **Deployed & Verified:** Both endpoints working in production
+
+**Phase 3 (iOS Integration) - In Progress:**
+- ✅ Phase 3.1: Foundation (complete)
+  - `ApiClient.sendToolEvent()` method
+  - `ToolEventService` for event handling
+  - Debug test verified with production backend
+- 🔄 Phase 3.2: Card system (next)
+  - Remove debug UI
+  - Add card rendering
+  - Agent-driven getting_started flow
+
+### 🔜 Remaining
+
+**Phase 4 (Agent Replaces Intervention Selector):**
+- Background job: state_estimate → tool_event
+- Agent evaluates health metrics
+- Real `send_notification` tool implementation
+- Deprecate intervention_selector
+
+---
+
+## Production Endpoints
+
+**Service:** `https://conversational-agent-meqmyk4w5q-uc.a.run.app`
+
+**Endpoints:**
+- `GET /health` - Health check
+- `POST /chat` - User text messages (streaming SSE)
+- `POST /tool_event` - System events (JSON response)
+
+**Auth:** Bearer token (Identity Platform or `mock.<user_id>`)
+
+**GCP Resources:**
+- Project: `shift-dev-478422`
+- Firestore: `user_context/{user_id}/versions/{timestamp_id}`
+- BigQuery: `shift_data.app_interactions`, `shift_data.state_estimates`
+- Cloud Run: `conversational-agent` (us-central1)
+
+---
+
 ## Overview
 
 Migration from hardcoded intervention system to agent-based architecture using LangChain 1.0.
@@ -27,7 +97,9 @@ User/System Events → Agent (context-aware decisions) → iOS
 
 ---
 
-## Phase 1: Agent Core (Foundation)
+## Phase 1: Agent Core (Foundation) ✅ COMPLETED
+
+**Status:** Deployed 2025-12-31
 
 **Goal:** Working agent with tools, testable locally
 
@@ -266,367 +338,344 @@ class AgentService:
     
     def invoke(self, user_id: str, message: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
         """Invoke agent with user isolation."""
-        thread = self.get_thread_id(user_id, thread_id)
+        full_thread_id = self.get_thread_id(user_id, thread_id)
         
-        response = self.agent.invoke(
+        result = self.agent.invoke(
             {"messages": [{"role": "user", "content": message}]},
-            config={"configurable": {"thread_id": thread}}
+            config={
+                "configurable": {"thread_id": full_thread_id},
+                "runtime": {"user_id": user_id}
+            }
         )
         
-        return response
-
-# __main__ test
-if __name__ == "__main__":
-    from agent import agent
-    
-    service = AgentService(agent)
-    response = service.invoke("test_user_123", "Hi, I'm Sarah")
-    print(response)
+        return result
 ```
 
-#### 6. Firestore Schema Setup
-
-**Collections:**
-- `user_context/{user_id}` - UserGoalsAndContext object
-- `agent_conversations/{user_id}/messages` - LangChain checkpointing
-
-**Initialize:**
-```python
-from google.cloud import firestore
-
-def setup_firestore_schema():
-    """Create initial Firestore collections if they don't exist."""
-    db = firestore.Client(project="shift-dev-478422")
-    
-    # user_context collection
-    # Structure: {profile: {}, goals: {}, context: {}}
-    
-    # agent_conversations collection
-    # Managed by LangGraph persistence automatically
-    
-    pass
-```
-
-#### 7. main.py - /chat Endpoint
+#### 6. main.py
 
 ```python
 from fastapi import FastAPI, Depends
+from agent import create_agent
 from agent_service import AgentService
-from agent import agent
+from auth import get_current_user
 
 app = FastAPI()
-service = AgentService(agent)
+
+# Initialize agent
+agent = create_agent()
 
 @app.post("/chat")
-async def chat(request: ChatRequest, current_user: User = Depends(get_current_user)):
-    """User text messages to agent."""
-    response = service.invoke(
-        user_id=current_user.user_id,
-        message=request.message
-    )
-    
-    # Log to BigQuery app_interactions
-    log_chat_interaction(current_user.user_id, request.message, response)
-    
-    return {"message": response["output"], "metadata": {...}}
+async def chat_endpoint(
+    message: str,
+    user_id: str = Depends(get_current_user)
+):
+    service = AgentService(agent)
+    result = service.invoke(user_id=user_id, message=message)
+    return {"response": result["messages"][-1].content}
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 ```
 
 ### Testing Progression
 
 1. **`__main__` test**:
    ```bash
-   python -m pipeline.conversational_agent.agent
-   python -m pipeline.conversational_agent.agent_service
+   cd pipeline/conversational_agent
+   python -m agent
    ```
-   - Verify: Agent creates, responds to simple message
-   - Verify: Service isolates threads correctly
+   - Expected: Agent responds to "Hi, I'm new here"
+   - Verify: No crashes, middleware loads, tools registered
 
 2. **Unit test**:
    ```python
-   # test_agent.py
-   def test_agent_updates_context():
-       response = agent.invoke({
-           "messages": [{"role": "user", "content": "I'm Sarah, 32 years old"}]
-       })
-       # Verify: update_user_context tool called with name and age
+   def test_agent_has_tools():
+       assert len(agent.tools) == 2
    
-   def test_agent_sends_notification():
-       response = agent.invoke({
-           "messages": [{"role": "user", "content": "My HRV just dropped"}]
-       })
-       # Verify: send_notification tool called (or not, based on context)
+   def test_context_injection():
+       # Mock user_id, verify context loaded
+       pass
    ```
-   Run: `pytest pipeline/conversational_agent/tests/test_agent.py -v`
 
 3. **Local test**:
    ```bash
-   cd pipeline/conversational_agent
    uvicorn main:app --reload
    
-   # In another terminal:
+   # In another terminal
    curl -X POST http://localhost:8000/chat \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer mock.test" \
-     -d '{"message": "Hi, I am new here"}'
+     -H "Authorization: Bearer mock.testuser" \
+     -d "message=Hi, I'm Sarah"
    ```
-   - Verify: Agent responds
-   - Verify: Firestore updated with user context
-   - Verify: BigQuery app_interactions logged
+   - Expected: Agent asks follow-up questions
+   - Verify: Server logs show middleware, tools called
 
 4. **Integration test**:
-   ```bash
-   # Deploy
-   ./deploy.sh -b
-   
-   # Test
-   curl -X POST https://conversational-agent-<hash>-uc.a.run.app/chat \
-     -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-     -H "Content-Type: application/json" \
-     -d '{"message": "Hi, I am Sarah"}'
-   ```
-   - Verify: Same behavior as local
+   - Deploy to Cloud Run
+   - Test with real Firestore and BigQuery
+   - Verify: Context persists across messages
 
 5. **E2E test**:
-   ```sql
-   -- Check Firestore updated
-   -- (use Firebase console or gcloud)
-   
-   -- Check BigQuery logged
-   SELECT * FROM `shift-dev-478422.shift_data.app_interactions`
-   WHERE user_id = 'test_user_123'
-   ORDER BY timestamp DESC LIMIT 5;
-   ```
-   - Verify: user_context has name="Sarah"
-   - Verify: app_interactions has chat event
+   - Fresh user: "Hi, I'm Sarah, 32 years old"
+   - Check: Firestore has profile.name="Sarah", profile.age=32
+   - Second message: "What's my name?"
+   - Expected: Agent responds "Sarah"
 
-**Done When:** Agent responds to chat, updates Firestore, logs to BigQuery
+**Done When:** Agent responds to chat, updates Firestore, recalls context
 
 ---
 
-## Phase 2: Tool Events
+## Phase 2: Tool Events ✅ COMPLETED
 
-**Goal:** Agent receives and responds to `/tool_event`
+**Status:** Deployed 2025-12-31
+
+**Goal:** iOS can send structured events to agent
 
 ### What to Build
 
-#### 1. NotificationGatingMiddleware
+#### 1. Tool Event Schema
+
+**File:** `pipeline/conversational_agent/schemas.py`
+
+```python
+from pydantic import BaseModel
+from typing import Optional, Any
+
+class ToolEventBody(BaseModel):
+    """Schema for /tool_event endpoint"""
+    type: str  # "app_opened", "card_tapped", "rating_submitted", etc.
+    intervention_key: Optional[str] = None
+    suggested_action: Optional[str] = None
+    context: Optional[str] = None
+    value: Optional[Any] = None
+    timestamp: str
+    thread_id: Optional[str] = None
+```
+
+#### 2. /tool_event Endpoint
+
+**File:** `pipeline/conversational_agent/main.py`
+
+```python
+from langchain.messages import ToolMessage
+import json
+from uuid import uuid4
+
+@app.post("/tool_event")
+async def tool_event_endpoint(
+    body: ToolEventBody,
+    user_id: str = Depends(get_current_user)
+):
+    # Convert to ToolMessage
+    tool_message = ToolMessage(
+        content=json.dumps(body.dict()),
+        tool_call_id=str(uuid4())
+    )
+    
+    service = AgentService(agent)
+    result = service.invoke(
+        user_id=user_id,
+        messages=[tool_message],
+        thread_id=body.thread_id
+    )
+    
+    return {
+        "status": "ok",
+        "event_type": body.type,
+        "response": result["messages"][-1].content
+    }
+```
+
+#### 3. NotificationGatingMiddleware
+
+**File:** `pipeline/conversational_agent/middleware.py`
 
 ```python
 class NotificationGatingMiddleware(AgentMiddleware):
     """Deterministic filtering before agent invocation."""
     
     def before_agent(self, state):
-        """Short-circuit if deterministic gates fail."""
-        if state.trigger == "health_metric_changed":
-            user_prefs = get_user_preferences(state.user_id)
-            
-            # Hard gates (deterministic)
-            if user_prefs.notification_preference == "off":
-                return None  # Don't invoke agent
-            
-            if not is_quiet_hours(user_prefs.quiet_hours):
-                return None  # Outside allowed time
-            
-            if recently_notified(state.user_id, within_hours=4):
-                return None  # Rate limit
-            
-            # Passed gates → let agent decide
+        """Return None to short-circuit, or state to continue."""
+        
+        # Only gate health_metric_changed events
+        if state.trigger != "health_metric_changed":
             return state
+        
+        user_id = state.runtime.user_id
+        user_prefs = get_user_context(user_id)
+        
+        # Gate 1: Notification preference
+        if user_prefs.profile.notification_preference == "off":
+            return None  # Short-circuit
+        
+        # Gate 2: Quiet hours
+        if is_quiet_hours(user_prefs.profile.quiet_hours):
+            return None
+        
+        # Gate 3: Recently notified
+        if recently_notified(user_id, within_hours=4):
+            return None
+        
+        # All gates passed → let agent decide
+        return state
 ```
 
 **Helper Functions:**
 ```python
-def get_user_preferences(user_id: str) -> dict:
-    """Load notification preferences from Firestore."""
-    pass
-
 def is_quiet_hours(quiet_hours: dict) -> bool:
-    """Check if current time is in quiet hours."""
-    pass
+    """Check if current time is in user's quiet hours."""
+    if not quiet_hours:
+        return False
+    
+    from datetime import datetime
+    now = datetime.now().time()
+    start = datetime.strptime(quiet_hours["start"], "%H:%M").time()
+    end = datetime.strptime(quiet_hours["end"], "%H:%M").time()
+    
+    if start <= end:
+        return start <= now <= end
+    else:  # Crosses midnight
+        return now >= start or now <= end
 
 def recently_notified(user_id: str, within_hours: int) -> bool:
-    """Check if notification sent recently."""
-    # Query BigQuery app_interactions for recent send_notification events
-    pass
+    """Check if notification sent recently (Phase 2: stub)."""
+    # TODO Phase 4: Query BigQuery for recent send_notification events
+    return False
 ```
 
-#### 2. /tool_event Endpoint
+#### 4. Update Agent Creation
 
-```python
-@app.post("/tool_event")
-async def tool_event(
-    event: Dict[str, Any],
-    current_user: User = Depends(get_current_user)
-):
-    """System events to agent."""
-    
-    # Convert to ToolMessage
-    from langchain.messages import ToolMessage
-    
-    messages = [ToolMessage(
-        content=json.dumps(event),
-        tool_call_id=str(uuid4())
-    )]
-    
-    # Load context
-    context = load_user_context(current_user.user_id)
-    
-    # Invoke agent
-    response = agent.invoke({
-        "messages": messages,
-        "context": context
-    })
-    
-    # Log to BigQuery
-    log_tool_event(current_user.user_id, event, response)
-    
-    return {"response": response}
-```
-
-#### 3. Event Types
-
-**Schema:**
-```python
-class ToolEvent(BaseModel):
-    type: str  # app_opened, card_tapped, rating_submitted, etc.
-    intervention_key: Optional[str]
-    suggested_action: Optional[str]
-    context: Optional[str]
-    value: Optional[Any]  # For ratings, metric values, etc.
-    timestamp: str
-
-# Examples:
-{
-  "type": "app_opened",
-  "timestamp": "2025-01-15T10:30:00Z"
-}
-
-{
-  "type": "card_tapped",
-  "intervention_key": "stress_checkin",
-  "suggested_action": "rate_stress_1_to_5",
-  "context": "User tapped stress check-in card",
-  "timestamp": "2025-01-15T10:30:00Z"
-}
-
-{
-  "type": "rating_submitted",
-  "intervention_key": "stress_checkin",
-  "value": 4,
-  "timestamp": "2025-01-15T10:30:00Z"
-}
-```
-
-#### 4. Update agent.py Middleware Stack
+**File:** `pipeline/conversational_agent/agent.py`
 
 ```python
 agent = create_agent(
     model="claude-sonnet-4-5-20250929",
     tools=[update_user_context, send_notification],
     middleware=[
-        NotificationGatingMiddleware(),  # NEW
+        NotificationGatingMiddleware(),  # NEW - runs first
         ContextInjectionMiddleware(),
-        SummarizationMiddleware(
-            model="claude-sonnet-4-5-20250929",
-            trigger={"tokens": 2000}
-        ),
     ],
     system_prompt=COACH_SYSTEM_PROMPT
 )
+```
+
+#### 5. Update System Prompt
+
+Add to `COACH_SYSTEM_PROMPT`:
+
+```python
+SYSTEM EVENTS:
+You may receive events from the iOS app formatted as ToolMessages.
+
+Event types:
+- app_opened: User opened the app (respond with greeting)
+- app_opened_first_time: User's first app launch (start intake)
+- card_tapped: User tapped an intervention card (engage with suggested_action)
+- rating_submitted: User provided a rating (acknowledge and adjust)
+- flow_completed: User completed a multi-step flow (congratulate, next steps)
+- health_metric_changed: Significant health metric change (evaluate, maybe notify)
+
+Respond naturally to these events as part of the conversation.
 ```
 
 ### Testing Progression
 
 1. **`__main__` test**:
    ```python
-   # In agent_service.py
+   # Add to agent.py
    if __name__ == "__main__":
-       service = AgentService(agent)
+       # Test tool event
+       from langchain.messages import ToolMessage
        
-       # Test tool_event
-       event = {"type": "app_opened", "timestamp": "2025-01-15T10:00:00Z"}
-       response = service.invoke_tool_event("test_user_123", event)
-       print(response)
+       tool_event = ToolMessage(
+           content=json.dumps({"type": "app_opened", "timestamp": "..."}),
+           tool_call_id="test-001"
+       )
+       
+       result = agent.invoke({"messages": [tool_event]})
+       print(result)
    ```
 
 2. **Unit test**:
    ```python
-   def test_notification_gating_middleware():
-       # Mock user with notification_preference = "off"
-       # Verify: middleware returns None (short-circuit)
+   def test_tool_event_schema():
+       event = ToolEventBody(type="app_opened", timestamp="2025-12-31T10:00:00Z")
+       assert event.type == "app_opened"
    
-   def test_agent_responds_to_card_tap():
-       event = {"type": "card_tapped", "intervention_key": "stress_checkin"}
-       response = agent.invoke({"messages": [ToolMessage(content=json.dumps(event))]})
-       # Verify: Agent asks for stress rating
+   def test_notification_gating():
+       # Mock user with prefs="off"
+       # Verify middleware returns None
+       pass
    ```
 
 3. **Local test**:
    ```bash
    curl -X POST http://localhost:8000/tool_event \
-     -H "Authorization: Bearer mock.test" \
-     -d '{"type": "app_opened"}'
+     -H "Authorization: Bearer mock.testuser" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "type": "app_opened",
+       "timestamp": "2025-12-31T10:00:00Z"
+     }'
    ```
 
 4. **Integration test**:
-   ```bash
-   curl -X POST https://conversational-agent-<hash>.run.app/tool_event \
-     -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-     -d '{"type": "card_tapped", "intervention_key": "stress_checkin"}'
-   ```
+   - Deploy to GCP
+   - Send tool_event from curl
+   - Verify: Agent responds appropriately
+   - Check: BigQuery logs event
 
 5. **E2E test**:
-   ```sql
-   SELECT * FROM `shift-dev-478422.shift_data.app_interactions`
-   WHERE user_id = 'test_user_123'
-     AND event_type = 'tool_event'
-   ORDER BY timestamp DESC LIMIT 5;
-   ```
+   - Fresh user opens app
+   - iOS sends app_opened_first_time
+   - Agent starts intake conversation
+   - User taps stress card
+   - iOS sends card_tapped with intervention_key
+   - Agent asks for stress rating
 
-**Done When:** Agent responds to tool_events, middleware gates working
+**Done When:** Tool events flow to agent, middleware gates work, responses natural
 
 ---
 
-## Phase 3: iOS Integration
+## Phase 3: iOS Integration 🔄 IN PROGRESS
 
-**Goal:** iOS sends tool_events, receives agent responses
+**Status:** Phase 3.1 complete, Phase 3.2 next
 
-### What to Build
+**Goal:** iOS sends tool_events for user actions, displays agent responses
 
-#### 1. iOS API Client Updates
+### Phase 3.1: Foundation ✅ COMPLETE
 
-**File:** `ios_app/ios_app/APIClient.swift`
+#### 1. Add sendToolEvent to API Client
+
+**File:** `ios_app/ios_app/ApiClient.swift`
 
 ```swift
-func sendToolEvent(event: [String: Any]) async throws -> ToolEventResponse {
-    let url = baseURL.appendingPathComponent("tool_event")
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-    
+func sendToolEvent(event: [String: Any]) async throws -> [String: Any] {
     let jsonData = try JSONSerialization.data(withJSONObject: event)
-    request.httpBody = jsonData
+    let responseData = try await post(path: "/tool_event", bodyData: jsonData)
     
-    let (data, response) = try await URLSession.shared.data(for: request)
-    
-    guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-        throw APIError.invalidResponse
+    guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+        throw ApiError.httpError(statusCode: 0, message: "Invalid JSON")
     }
     
-    return try JSONDecoder().decode(ToolEventResponse.self, from: data)
+    return json
 }
 ```
 
-#### 2. Card Tap Handler
+### Phase 3.2: Card System 🔄 NEXT
+
+#### 2. Update Card Tap Handler
 
 **File:** `ios_app/ios_app/InterventionDetailView.swift`
 
 **Before:**
 ```swift
 Button {
-    // Hardcoded prompt injection (doesn't work)
-    chatViewModel.injectMessage(role: "assistant", text: prompt)
+    // PROBLEM: This doesn't work - just injects text into chat
+    if let prompt = intervention.action?.prompt {
+        chatViewModel.injectMessage(role: "assistant", text: prompt)
+    }
+    dismiss()
 } label: {
     Text("Try it")
 }
@@ -748,7 +797,7 @@ Button("Start") {
 
 ---
 
-## Phase 4: Agent Replaces Intervention Selector
+## Phase 4: Agent Replaces Intervention Selector 🔜
 
 **Goal:** Agent decides interventions, not hardcoded rules
 
@@ -867,7 +916,9 @@ Agent receives tool_event via NotificationGatingMiddleware:
 
 ### Firestore (Agent State, Real-time)
 **Collections:**
-- `user_context/{user_id}` - UserGoalsAndContext
+- `user_context/{user_id}/versions/{timestamp_id}` - Append-only versioned context
+  - Each save creates new doc: `YYYYMMDD_HHMMSS_microseconds`
+  - `get_user_context()` queries latest: `ORDER BY created_at DESC LIMIT 1`
 - `agent_conversations/{user_id}/messages` - LangChain checkpointing
 
 **Access:** Read/write on every agent interaction
@@ -891,9 +942,9 @@ Agent receives tool_event via NotificationGatingMiddleware:
 - [LangChain 1.0 Release](https://blog.langchain.com/langchain-langchain-1-0-alpha-releases/)
 - [LangChain Agents](https://python.langchain.com/docs/how_to/#agents)
 - [LangChain Middleware](https://python.langchain.com/docs/how_to/middleware/)
+- [Production Service](https://console.cloud.google.com/run/detail/us-central1/conversational-agent/metrics?project=shift-dev-478422)
+- [Firestore Console](https://console.cloud.google.com/firestore/databases/-default-/data/panel/user_context?project=shift-dev-478422)
 
 ---
 
-**Document Version:** 2.0  
-**Last Updated:** 2025-12-30  
 **Authors:** Sylvester (CTO), Claude (AI Architecture Consultant)
