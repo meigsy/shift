@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import FastAPI, Depends
 from fastapi.responses import StreamingResponse
 
@@ -6,6 +7,13 @@ from agent import create_grow_agent
 from agent_service import AgentService
 from auth import get_current_user
 from schemas import ChatRequestBody
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 GCP_PROJECT_ID = os.environ["GCP_PROJECT_ID"]
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")

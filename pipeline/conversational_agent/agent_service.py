@@ -19,7 +19,17 @@ class AgentService:
             if chunk and "messages" in chunk:
                 last_msg = chunk["messages"][-1]
                 if hasattr(last_msg, "content") and last_msg.content:
-                    yield last_msg.content
+                    content = last_msg.content
+                    # Handle both string and list content (tool calls return list)
+                    if isinstance(content, str):
+                        yield content
+                    elif isinstance(content, list):
+                        # Extract text from content blocks
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                yield block.get("text", "")
+                            elif isinstance(block, str):
+                                yield block
 
 
 if __name__ == "__main__":
