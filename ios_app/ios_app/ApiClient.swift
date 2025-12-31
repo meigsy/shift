@@ -255,6 +255,21 @@ class ApiClient {
             throw ApiError.httpError(statusCode: 0, message: error.localizedDescription)
         }
     }
+    
+    func sendToolEvent(path: String = "/tool_event", event: [String: Any]) async throws -> [String: Any] {
+        // Encode event to JSON
+        let jsonData = try JSONSerialization.data(withJSONObject: event, options: [])
+        
+        // Send POST request
+        let responseData = try await post(path: path, bodyData: jsonData)
+        
+        // Decode JSON response
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw ApiError.httpError(statusCode: 0, message: "Invalid JSON response from tool_event endpoint")
+        }
+        
+        return json
+    }
 }
 
 extension String {

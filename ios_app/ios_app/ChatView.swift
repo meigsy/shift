@@ -72,6 +72,13 @@ struct ChatView: View {
                 #if DEBUG
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
+                        testToolEvent()
+                    } label: {
+                        Image(systemName: "bolt.circle")
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
                         insertStressCard()
                     } label: {
                         Image(systemName: "square.and.arrow.down")
@@ -327,6 +334,34 @@ W: What will you do next?
     }
     
     #if DEBUG
+    private func testToolEvent() {
+        print("🧪 Testing ToolEventService...")
+        
+        Task {
+            do {
+                let apiClient = ApiClient(
+                    baseURL: ios_appApp.CONVERSATIONAL_AGENT_BASE_URL,
+                    idToken: authViewModel.idToken
+                )
+                
+                let toolEventService = ToolEventService(
+                    apiClient: apiClient,
+                    chatViewModel: chatViewModel
+                )
+                
+                let response = try await toolEventService.sendToolEvent(
+                    type: "app_opened",
+                    context: "Debug test from ChatView toolbar"
+                )
+                
+                print("✅ Tool event test successful! Response: \(response ?? "nil")")
+                
+            } catch {
+                print("❌ Tool event test failed: \(error)")
+            }
+        }
+    }
+    
     private func insertStressCard() {
         let stressCard = ChatCard(
             id: "stress-check-in-v1",
