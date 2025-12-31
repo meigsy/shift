@@ -386,129 +386,110 @@ apiClient.post("/tool_event", body: ["type": "app_opened_first_time"])
 apiClient.post("/tool_event", body: ["type": "app_opened"])
 ```
 
-### 9. Migration Path
+### 9. Implementation Plan
 
-#### Phase 1: Foundation (Week 1)
-- [ ] Create agent service with LangChain 1.0
-- [ ] Implement `/tool_event` endpoint
-- [ ] Build middleware stack (gating, context injection)
-- [ ] Set up Firestore schema for UserGoalsAndContext
-- [ ] Deploy agent service alongside existing system (no breaking changes)
+Build incrementally, testing at each layer before proceeding.
 
-#### Phase 2: iOS Integration (Week 2)
-- [ ] Update iOS to send `/tool_event` for card taps
-- [ ] Add `flow_completed` event to getting_started flow
-- [ ] Test agent responses to tool_events
-- [ ] Keep `/context` endpoint running (fallback)
+#### Phase 1: Agent Core (Foundation)
+**Goal:** Working agent with tools, testable locally
 
-#### Phase 3: Agent Activation (Week 3)
-- [ ] Route card interactions through agent instead of hardcoded prompts
-- [ ] Agent handles getting_started completion → global goals conversation
-- [ ] Monitor agent performance and iterate on prompts
-- [ ] Keep intervention_selector running but log when agent would differ
+**Build:**
+1. `agent.py` - LangChain agent with system prompt, tools (`update_user_context`, `send_notification`)
+2. `agent_service.py` - User isolation, thread management, coordinates agent
+3. Firestore schema setup for UserGoalsAndContext
+4. Middleware: ContextInjectionMiddleware (load user context from Firestore + BigQuery)
 
-#### Phase 4: Full Migration (Week 4)
-- [ ] Disable intervention_selector (agent fully handles decisions)
-- [ ] Remove `/context` endpoint
-- [ ] Clean up deprecated BigQuery tables
-- [ ] Archive old intervention selection code
+**Testing Progression:**
+1. **`__main__` test**: `python -m pipeline.conversational_agent.agent` - smoke test agent creation and simple invoke
+2. **Unit test**: Happy path + basic tool calls (agent updates context, sends notification)
+3. **Local test**: `uvicorn` server, `/chat` endpoint works with mock user
+4. **Integration test**: Deploy to GCP, `curl /chat` with real auth
+5. **E2E test**: Check Firestore for updated context, BigQuery for logged events
 
-#### Phase 5: Optimization (Ongoing)
-- [ ] Tune middleware context injection (token budget optimization)
-- [ ] Add conversation summarization for long histories
-- [ ] Implement A/B testing for prompt variations
-- [ ] Add analytics on agent decision quality
+**Done When:** Agent responds to chat, updates Firestore context, logs to BigQuery
 
-## Testing Strategy
+---
 
-### Unit Tests
-- Middleware short-circuiting (gating logic)
-- Context injection (correct layers loaded)
-- Tool call validation (schema compliance)
+#### Phase 2: Tool Events
+**Goal:** Agent receives and responds to `/tool_event` 
 
-### Integration Tests
-- `/tool_event` → agent invocation → response
-- `/chat` → agent invocation → response
-- State updates via `update_user_context` persist to Firestore
+**Build:**
+1. `/tool_event` endpoint in `main.py`
+2. NotificationGatingMiddleware (deterministic filters: prefs, quiet hours, rate limits)
+3. Tool event types: `app_opened`, `card_tapped`, `rating_submitted`
 
-### End-to-End Tests
-1. **First-time user flow:**
-   - Send `app_opened_first_time`
-   - Verify agent asks for name, age
-   - Update context via tool
-   - Verify Firestore updated
-   
-2. **Card interaction flow:**
-   - Send `card_tapped` with stress_checkin
-   - Verify agent asks for stress rating
-   - Send `rating_submitted` with value
-   - Verify agent responds appropriately
-   
-3. **Proactive notification flow:**
-   - Insert low HRV in state_estimates
-   - Trigger background job → `/tool_event` health_metric_changed
-   - Verify middleware gates pass
-   - Verify agent calls `send_notification` (or doesn't, based on context)
+**Testing Progression:**
+1. **`__main__` test**: `agent_service.py` with mock tool_event dict
+2. **Unit test**: Middleware gates work (short-circuit when prefs = "off")
+3. **Local test**: `curl /tool_event` with various event types
+4. **Integration test**: Deploy, `curl /tool_event` from GCP
+5. **E2E test**: Verify app_interactions table has tool_event rows, agent responded appropriately
 
-### Manual Testing
-- Conversation quality (does agent navigate phases correctly?)
-- Context awareness (does agent remember goals and adjust advice?)
-- Notification appropriateness (spam vs helpful)
+**Done When:** Agent responds to tool_events, middleware gates working
 
-## Monitoring & Observability
+---
 
-### Metrics to Track
-- Agent invocation rate (tool_events vs chat messages)
-- Middleware short-circuit rate (how often gating prevents LLM calls)
-- Tool call distribution (update_user_context vs send_notification)
-- Response latency (p50, p95, p99)
-- Context injection size (tokens used per layer)
+#### Phase 3: iOS Integration
+**Goal:** iOS sends tool_events, receives agent responses
 
-### Logging
-- All tool_events logged to BigQuery `app_interactions`
-- Agent decisions logged (why notification sent/not sent)
-- Middleware gates logged (which gate triggered short-circuit)
-- LangChain traces via LangSmith (conversation debugging)
+**Build:**
+1. iOS: Card tap → `POST /tool_event {"type": "card_tapped", ...}`
+2. iOS: App launch → `POST /tool_event {"type": "app_opened"}`
+3. iOS: Getting started completion → `POST /tool_event {"type": "flow_completed"}`
 
-## Rollback Plan
+**Testing Progression:**
+1. **Build test**: iOS compiles, no errors
+2. **Local test**: Point iOS at local server, tap card, verify /tool_event called
+3. **Integration test**: Point iOS at GCP, tap card, verify agent responds
+4. **E2E test**: 
+   - Fresh user opens app → agent asks for name
+   - User taps stress card → agent asks for rating
+   - Check BigQuery for complete event chain
+   - Check Firestore for updated context
 
-If agent performance is poor or bugs are critical:
+**Done When:** iOS actions flow through agent, conversations feel natural
 
-1. **Immediate:** Re-enable `/context` endpoint (intervention_selector resumes)
-2. **iOS:** Revert to hardcoded prompt injection temporarily
-3. **Agent:** Keep running in shadow mode (log decisions but don't act)
-4. **Debug:** Use LangSmith traces to identify prompt/context issues
-5. **Fix:** Iterate on prompts/middleware in staging
-6. **Retry:** Gradual rollout with feature flags
+---
 
-## Success Criteria
+#### Phase 4: Agent Replaces Intervention Selector
+**Goal:** Agent decides interventions, not hardcoded rules
 
-### Phase 1-2 (Foundation)
-- [ ] Agent service deployed and responding to `/tool_event`
-- [ ] iOS sending tool_events successfully
-- [ ] No increase in error rates
+**Build:**
+1. Background job: state_estimate → `/tool_event {"type": "health_metric_changed"}`
+2. Agent evaluates context + state → decides to `send_notification` or NOOP
+3. Middleware gates prevent spam
 
-### Phase 3 (Agent Activation)
-- [ ] Agent handles card interactions with <2s latency (p95)
-- [ ] User conversations feel natural (manual review)
-- [ ] Context updates persist correctly to Firestore
+**Testing Progression:**
+1. **Unit test**: Mock state_estimate → verify middleware gates → verify agent decision
+2. **Local test**: Manually insert state_estimate, trigger background job, verify agent response
+3. **Integration test**: Deploy, trigger real state_estimate, verify notification sent/not sent
+4. **E2E test**:
+   - HRV drops → state_estimate created
+   - Agent decides to notify (or not, based on user prefs)
+   - Check BigQuery for decision logs
+   - Verify iOS receives notification (if sent)
 
-### Phase 4 (Full Migration)
-- [ ] `/context` endpoint removed, no rollbacks needed
-- [ ] Agent decision quality >= intervention_selector baseline
-- [ ] 50%+ reduction in notification spam (user feedback)
+**Done When:** Agent controls all intervention decisions, intervention_selector deprecated
 
-### Phase 5 (Optimization)
-- [ ] Agent cost per interaction <$0.01
-- [ ] Context injection optimized (token budget 90% utilized)
-- [ ] User engagement up 20% (measured via check-in frequency)
+---
 
-## Open Questions
+## Testing Philosophy
 
-1. **Summarization strategy:** How often to summarize long conversations? Daily? After N messages?
-2. **Context budget:** What's the optimal token allocation per context layer?
-3. **Notification timing:** Should middleware enforce minimum time between notifications, or let agent decide?
-4. **A/B testing:** How to test prompt variations without fragmenting user experience?
+**Build smallest testable units, test at each layer:**
+
+1. **`__main__`**: Smoke test - does it run without crashing? Happy path only.
+2. **Unit test**: Happy path + simple variations. For bugs: TDD (write failing test, fix, pass).
+3. **Local test**: Run service locally, `curl` or use client to verify behavior.
+4. **Integration test**: Deploy to GCP, `curl` endpoints, verify cloud services work.
+5. **E2E test**: Full user flow, check tables/logs before and after, verify complete chain.
+
+**Test coverage emerges from TDD bug fixes.** Don't pre-fill extensive test suites. When bugs happen:
+- Write test that reproduces bug (fails)
+- Fix bug
+- Test passes
+- Coverage grows organically
+
+---
 
 ## References
 
@@ -519,6 +500,6 @@ If agent performance is poor or bugs are critical:
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2025-01-15  
+**Document Version:** 1.1  
+**Last Updated:** 2025-12-30  
 **Authors:** Sylvester (CTO), Claude (AI Architecture Consultant)
