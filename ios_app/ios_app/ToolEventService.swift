@@ -17,6 +17,22 @@ class ToolEventService {
         self.chatViewModel = chatViewModel
     }
     
+    /// Get the active thread ID from ChatViewModel, or construct default if not available
+    private func getThreadId(override: String? = nil) -> String {
+        // If explicit override provided, use it
+        if let override = override {
+            return override
+        }
+        
+        // Use ChatViewModel's active thread if available
+        if let chatVM = chatViewModel {
+            return chatVM.activeThreadId
+        }
+        
+        // Fallback: just return "active" and let backend construct full thread ID
+        return "active"
+    }
+    
     /// Send a tool event to the conversational agent
     /// - Parameters:
     ///   - type: Event type (e.g., "app_opened", "card_tapped", "flow_completed")
@@ -36,9 +52,13 @@ class ToolEventService {
     ) async throws -> String? {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         
+        // Get the correct thread ID - use ChatViewModel's active thread to ensure consistency
+        let effectiveThreadId = getThreadId(override: threadId)
+        
         var eventPayload: [String: Any] = [
             "type": type,
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            "thread_id": effectiveThreadId  // ALWAYS include thread_id for consistency
         ]
         
         // Add optional fields if present
@@ -46,7 +66,6 @@ class ToolEventService {
         if let action = suggestedAction { eventPayload["suggested_action"] = action }
         if let ctx = context { eventPayload["context"] = ctx }
         if let val = value { eventPayload["value"] = val }
-        if let tid = threadId { eventPayload["thread_id"] = tid }
         
         print("📤 Sending tool event: type=\(type), intervention_key=\(interventionKey ?? "nil")")
         

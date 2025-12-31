@@ -100,6 +100,28 @@ class ChatViewModel: ObservableObject {
     
     /// Inject a message into the chat (non-streaming)
     func injectMessage(role: String = "assistant", text: String) {
+        // #region agent log
+        let logData: [String: Any] = [
+            "location": "ChatViewModel.swift:103",
+            "message": "injectMessage called",
+            "data": [
+                "role": role,
+                "textPreview": text.prefix(100),
+                "textLength": text.count,
+                "currentMessageCount": messages.count,
+                "activeThreadId": activeThreadId
+            ],
+            "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "A"
+        ]
+        if let logJson = try? JSONSerialization.data(withJSONObject: logData),
+           let logStr = String(data: logJson, encoding: .utf8) {
+            try? logStr.appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+        }
+        // #endregion
+        
         let message = ChatMessage(role: role, text: text)
         messages.append(message)
     }
