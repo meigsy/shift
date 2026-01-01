@@ -99,8 +99,8 @@ class ChatViewModel: ObservableObject {
     // MARK: - Card and Message Injection
     
     /// Inject a message into the chat (non-streaming)
-    func injectMessage(role: String = "assistant", text: String) {
-        let message = ChatMessage(role: role, text: text)
+    func injectMessage(role: String = "assistant", text: String, card: AgentCard? = nil) {
+        let message = ChatMessage(role: role, text: text, agentCard: card)
         messages.append(message)
     }
     

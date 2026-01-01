@@ -10,10 +10,12 @@ import SwiftUI
 struct ChatMessageRow: View {
     let message: ChatMessage
     let onCardAction: ((ActionType) -> Void)?
+    let onAgentCardTap: ((AgentCard) -> Void)?
     
-    init(message: ChatMessage, onCardAction: ((ActionType) -> Void)? = nil) {
+    init(message: ChatMessage, onCardAction: ((ActionType) -> Void)? = nil, onAgentCardTap: ((AgentCard) -> Void)? = nil) {
         self.message = message
         self.onCardAction = onCardAction
+        self.onAgentCardTap = onAgentCardTap
     }
     
     var body: some View {
@@ -31,6 +33,16 @@ struct ChatMessageRow: View {
                         ChatCardInlineView(card: card, onAction: onCardAction)
                     } else {
                         ChatCardInlineView(card: card, onAction: { _ in })
+                    }
+                case .textWithCard(let text, let agentCard):
+                    VStack(alignment: .leading, spacing: 12) {
+                        textBubble(text)
+                        if let handler = onAgentCardTap {
+                            AgentCardView(card: agentCard, onTap: {
+                                handler(agentCard)
+                            })
+                            .padding(.top, 4)
+                        }
                     }
                 }
             }

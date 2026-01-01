@@ -10,6 +10,7 @@ import Foundation
 enum MessageKind: Equatable {
     case text(String)
     case card(ChatCard)
+    case textWithCard(String, AgentCard)  // NEW: text message with attached agent card
 }
 
 struct ChatMessage: Identifiable, Equatable {
@@ -26,7 +27,19 @@ struct ChatMessage: Identifiable, Equatable {
         self.createdAt = createdAt
     }
     
-    // Card initializer
+    // Text with optional agent card initializer (NEW)
+    init(id: UUID = UUID(), role: String, text: String, agentCard: AgentCard?, createdAt: Date = Date()) {
+        self.id = id
+        self.role = role
+        if let card = agentCard {
+            self.kind = .textWithCard(text, card)
+        } else {
+            self.kind = .text(text)
+        }
+        self.createdAt = createdAt
+    }
+    
+    // Card initializer (legacy ChatCard)
     init(id: UUID = UUID(), role: String, card: ChatCard, createdAt: Date = Date()) {
         self.id = id
         self.role = role
@@ -34,11 +47,23 @@ struct ChatMessage: Identifiable, Equatable {
         self.createdAt = createdAt
     }
     
-    // Convenience accessor for text (when kind is .text)
+    // Convenience accessor for text (when kind is .text or .textWithCard)
     var text: String {
-        if case .text(let text) = kind {
+        switch kind {
+        case .text(let text):
             return text
+        case .textWithCard(let text, _):
+            return text
+        case .card:
+            return ""
         }
-        return ""
+    }
+    
+    // Convenience accessor for agent card (when kind is .textWithCard)
+    var agentCard: AgentCard? {
+        if case .textWithCard(_, let card) = kind {
+            return card
+        }
+        return nil
     }
 }

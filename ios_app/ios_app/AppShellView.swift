@@ -55,6 +55,7 @@ struct AppShellView: View {
             }
             .task {
                 await loadContextOnStartup()
+                await sendAppLaunchEvent()
             }
         }
     }
@@ -80,6 +81,55 @@ struct AppShellView: View {
             
         } catch {
             print("❌ Failed to load context: \(error.localizedDescription)")
+        }
+    }
+    
+    private func sendAppLaunchEvent() async {
+        // Determine if first launch
+        let hasLaunchedKey = "has_launched_before"
+        let hasLaunchedBefore = UserDefaults.standard.bool(forKey: hasLaunchedKey)
+        let eventType = hasLaunchedBefore ? "app_opened" : "app_opened_first_time"
+        
+        print("📱 Sending app launch event: \(eventType)")
+        
+        // Create ToolEventService
+        let apiClient = ApiClient(
+            baseURL: conversationalAgentBaseURL,
+            idToken: authViewModel.idToken
+        )
+        let toolEventService = ToolEventService(
+            apiClient: apiClient,
+            chatViewModel: chatViewModel
+        )
+        
+        do {
+            let (response, card) = try await toolEventService.sendToolEvent(
+                type: eventType,
+                context: "App launched"
+            )
+            
+            // If we received a card, inject it into chat with the response
+            if let card = card {
+                await MainActor.run {
+                    chatViewModel.injectMessage(role: "assistant", text: response ?? "", card: card)
+                }
+                print("📇 Agent card injected into chat: \(card.title)")
+            } else if let response = response, !response.isEmpty {
+                // Just text response, no card
+                await MainActor.run {
+                    chatViewModel.injectMessage(role: "assistant", text: response)
+                }
+                print("💬 Agent response injected into chat")
+            }
+            
+            // Mark that app has launched (only after first successful event)
+            if !hasLaunchedBefore {
+                UserDefaults.standard.set(true, forKey: hasLaunchedKey)
+                print("✅ First launch recorded")
+            }
+            
+        } catch {
+            print("❌ Failed to send app launch event: \(error)")
         }
     }
 }

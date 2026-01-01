@@ -9,6 +9,7 @@ from agent_service import AgentService
 from auth import get_current_user
 from schemas import ChatRequestBody, ToolEventBody
 from middleware import set_middleware_user_id
+from user_context import get_user_context
 
 # Configure logging
 logging.basicConfig(
@@ -82,11 +83,34 @@ async def tool_event_endpoint(
                     elif isinstance(block, str):
                         response_content += block
         
-        return {
+        # Build response
+        response = {
             "status": "ok",
             "event_type": body.type,
             "response": response_content
         }
+        
+        # Determine if card should be shown (backend logic)
+        card = None
+        if body.type == "app_opened_first_time":
+            # Check if user has completed getting_started (has profile name set)
+            user_context = get_user_context(user_id, GCP_PROJECT_ID)
+            if not user_context.profile.name:
+                logger.info(f"[tool_event] Showing getting_started card for new user {user_id}")
+                card = {
+                    "type": "getting_started",
+                    "title": "Welcome to SHIFT",
+                    "body": "Learn how SHIFT works in 60 seconds",
+                    "action": {
+                        "type": "full_screen_flow",
+                        "flow_id": "getting_started"
+                    }
+                }
+        
+        if card:
+            response["card"] = card
+        
+        return response
     except Exception as e:
         logger.error(f"[tool_event] Error processing event: {e}")
         return {

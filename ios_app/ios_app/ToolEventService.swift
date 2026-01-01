@@ -41,7 +41,7 @@ class ToolEventService {
     ///   - context: Optional context string describing the event
     ///   - value: Optional value (for ratings, metrics, etc.)
     ///   - threadId: Optional thread ID (nil uses default active thread)
-    /// - Returns: Agent's text response (if any)
+    /// - Returns: Tuple of (response text, optional AgentCard)
     func sendToolEvent(
         type: String,
         interventionKey: String? = nil,
@@ -49,7 +49,7 @@ class ToolEventService {
         context: String? = nil,
         value: Any? = nil,
         threadId: String? = nil
-    ) async throws -> String? {
+    ) async throws -> (response: String?, card: AgentCard?) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         
         // Get the correct thread ID - use ChatViewModel's active thread to ensure consistency
@@ -85,14 +85,26 @@ class ToolEventService {
             // Extract agent response text
             let agentResponse = response["response"] as? String
             
+            // Parse card if present
+            var card: AgentCard? = nil
+            if let cardData = response["card"] as? [String: Any] {
+                do {
+                    let cardJson = try JSONSerialization.data(withJSONObject: cardData)
+                    card = try JSONDecoder().decode(AgentCard.self, from: cardJson)
+                    print("📇 Card parsed: \(card?.title ?? "unknown")")
+                } catch {
+                    print("⚠️ Failed to parse card: \(error)")
+                }
+            }
+            
             // If agent responded with text, insert into chat (if chatViewModel available)
             if let text = agentResponse, !text.isEmpty, let chatVM = chatViewModel {
-                chatVM.injectMessage(role: "assistant", text: text)
+                chatVM.injectMessage(role: "assistant", text: text, card: card)
                 print("💬 Agent response injected into chat: \(text.prefix(50))...")
             }
             
             print("✅ Tool event sent successfully (status: \(status))")
-            return agentResponse
+            return (agentResponse, card)
             
         } catch let error as ToolEventError {
             print("❌ Failed to send tool event: \(error.localizedDescription)")

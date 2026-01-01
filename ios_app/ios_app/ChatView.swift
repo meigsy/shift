@@ -19,6 +19,7 @@ struct ChatView: View {
     @State private var draftText: String = ""
     @FocusState private var isInputFocused: Bool
     @State private var composerHeight: CGFloat = 0
+    @State private var showOnboarding = false
     
     var body: some View {
         ScrollViewReader { proxy in
@@ -28,7 +29,7 @@ struct ChatView: View {
                         emptyState
                     } else {
                         ForEach(chatViewModel.messages) { message in
-                            ChatMessageRow(message: message, onCardAction: handleCardAction)
+                            ChatMessageRow(message: message, onCardAction: handleCardAction, onAgentCardTap: handleAgentCardTap)
                                 .id(message.id)
                         }
                     }
@@ -68,33 +69,29 @@ struct ChatView: View {
             .onPreferenceChange(ComposerHeightKey.self) { newHeight in
                 if abs(newHeight - composerHeight) > 0.5 { composerHeight = newHeight }
             }
-            .toolbar {
-                #if DEBUG
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        testToolEvent()
-                    } label: {
-                        Image(systemName: "bolt.circle")
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        insertStressCard()
-                    } label: {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        insertBreathingCard()
-                    } label: {
-                        Image(systemName: "wind")
-                    }
-                }
-                #endif
-            }
+            // Toolbar items removed - agent-driven cards replace debug UI
             .fullScreenCover(item: $activeExperience) { experience in
                 experienceView(for: experience)
+            }
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingExperienceView(
+                    onClose: {
+                        showOnboarding = false
+                    },
+                    onComplete: {
+                        showOnboarding = false
+                        // Send flow_completed event
+                        Task {
+                            let toolEventService = makeToolEventService()
+                            _ = try? await toolEventService?.sendToolEvent(
+                                type: "flow_completed",
+                                context: "User completed getting_started onboarding"
+                            )
+                        }
+                    },
+                    interactionService: makeInteractionService(),
+                    userId: authViewModel.user?.userId ?? ""
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: .chatCardInterventionReceived)) { notification in
                 // #region agent log
@@ -173,6 +170,43 @@ struct ChatView: View {
         case .openExperience(let experienceId):
             activeExperience = experienceId
         }
+    }
+    
+    private func handleAgentCardTap(_ card: AgentCard) {
+        print("🎯 Agent card tapped: \(card.title)")
+        
+        switch card.action.type {
+        case "full_screen_flow":
+            if card.action.flowId == "getting_started" {
+                showOnboarding = true
+            }
+            
+        case "chat_prompt":
+            if let prompt = card.action.prompt {
+                Task {
+                    let toolEventService = makeToolEventService()
+                    _ = try? await toolEventService?.sendToolEvent(
+                        type: "card_tapped",
+                        suggestedAction: prompt,
+                        context: "User tapped agent card with prompt"
+                    )
+                }
+            }
+            
+        default:
+            print("⚠️ Unknown card action type: \(card.action.type)")
+        }
+    }
+    
+    private func makeToolEventService() -> ToolEventService? {
+        let apiClient = ApiClient(
+            baseURL: ios_appApp.CONVERSATIONAL_AGENT_BASE_URL,
+            idToken: authViewModel.idToken
+        )
+        return ToolEventService(
+            apiClient: apiClient,
+            chatViewModel: chatViewModel
+        )
     }
     
     // MARK: - Experience Views
@@ -332,60 +366,4 @@ W: What will you do next?
         apiClient.setToken(authViewModel.idToken)
         return InteractionService(apiClient: apiClient)
     }
-    
-    #if DEBUG
-    private func testToolEvent() {
-        print("🧪 Testing ToolEventService...")
-        
-        Task {
-            do {
-                let apiClient = ApiClient(
-                    baseURL: ios_appApp.CONVERSATIONAL_AGENT_BASE_URL,
-                    idToken: authViewModel.idToken
-                )
-                
-                let toolEventService = ToolEventService(
-                    apiClient: apiClient,
-                    chatViewModel: chatViewModel
-                )
-                
-                let response = try await toolEventService.sendToolEvent(
-                    type: "app_opened",
-                    context: "Debug test from ChatView toolbar"
-                )
-                
-                print("✅ Tool event test successful! Response: \(response ?? "nil")")
-                
-            } catch {
-                print("❌ Tool event test failed: \(error)")
-            }
-        }
-    }
-    
-    private func insertStressCard() {
-        let stressCard = ChatCard(
-            id: "stress-check-in-v1",
-            title: "Quick stress check-in",
-            body: "Want to do a quick 10-second check-in?",
-            primaryCTA: CardAction(
-                label: "Check in",
-                action: .injectPrompt("Quick check-in: how stressed do you feel right now (0–10)? What's going on?")
-            )
-        )
-        chatViewModel.insertCard(stressCard)
-    }
-    
-    private func insertBreathingCard() {
-        let breathingCard = ChatCard(
-            id: "breathing-exercise-v1",
-            title: "60-second breathing",
-            body: "A quick reset. Want to try it?",
-            primaryCTA: CardAction(
-                label: "Start",
-                action: .openExperience(.breathing60s)
-            )
-        )
-        chatViewModel.insertCard(breathingCard)
-    }
-    #endif
 }
