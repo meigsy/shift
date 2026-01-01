@@ -89,13 +89,10 @@ struct AppShellView: View {
                 self.contextLoaded = true
             }
             
-            // Check for getting_started intervention and auto-present if found
-            if let gettingStarted = payload.interventions.first(where: { $0.interventionKey == "getting_started_v1" }) {
-                // Auto-present the onboarding flow
-                await MainActor.run {
-                    activeExperience = .onboarding
-                }
-            }
+            // REMOVED: Auto-present logic for getting_started
+            // The new card-based system handles this via sendAppLaunchEvent()
+            // which returns a "Welcome to SHIFT" card that user can tap.
+            // This prevents the slideshow from covering HealthKit permission dialogs.
             
         } catch {
             print("❌ Failed to load context: \(error.localizedDescription)")
