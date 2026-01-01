@@ -54,6 +54,24 @@ struct AppShellView: View {
                 }
             }
             .task {
+                // #region agent log
+                let logEntry: [String: Any] = [
+                    "location": "AppShellView.swift:56",
+                    "message": ".task TRIGGERED",
+                    "data": [
+                        "timestamp": Date().timeIntervalSince1970
+                    ],
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "D",
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+                if let logData = try? JSONSerialization.data(withJSONObject: logEntry),
+                   let logStr = String(data: logData, encoding: .utf8) {
+                    try? (logStr + "\n").appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                }
+                // #endregion
+                
                 await loadContextOnStartup()
                 await sendAppLaunchEvent()
             }
@@ -85,6 +103,24 @@ struct AppShellView: View {
     }
     
     private func sendAppLaunchEvent() async {
+        // #region agent log
+        let logEntry1: [String: Any] = [
+            "location": "AppShellView.swift:94",
+            "message": "sendAppLaunchEvent CALLED",
+            "data": [
+                "timestamp": Date().timeIntervalSince1970
+            ],
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "B",
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        if let logData = try? JSONSerialization.data(withJSONObject: logEntry1),
+           let logStr = String(data: logData, encoding: .utf8) {
+            try? (logStr + "\n").appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+        }
+        // #endregion
+        
         // Determine if first launch
         let hasLaunchedKey = "has_launched_before"
         let hasLaunchedBefore = UserDefaults.standard.bool(forKey: hasLaunchedKey)
@@ -108,18 +144,76 @@ struct AppShellView: View {
                 context: "App launched"
             )
             
+            // #region agent log
+            let logEntry2: [String: Any] = [
+                "location": "AppShellView.swift:117",
+                "message": "AppShellView AFTER sendToolEvent",
+                "data": [
+                    "hasResponse": response != nil,
+                    "responseLength": response?.count ?? 0,
+                    "hasCard": card != nil,
+                    "currentMessageCount": chatViewModel.messages.count
+                ],
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A",
+                "timestamp": Date().timeIntervalSince1970
+            ]
+            if let logData = try? JSONSerialization.data(withJSONObject: logEntry2),
+               let logStr = String(data: logData, encoding: .utf8) {
+                try? (logStr + "\n").appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+            }
+            // #endregion
+            
             // If we received a card, inject it into chat with the response
             if let card = card {
                 await MainActor.run {
                     chatViewModel.injectMessage(role: "assistant", text: response ?? "", card: card)
                 }
                 print("📇 Agent card injected into chat: \(card.title)")
+                
+                // #region agent log
+                let logEntry3: [String: Any] = [
+                    "location": "AppShellView.swift:135",
+                    "message": "AppShellView INJECTED message with card",
+                    "data": [
+                        "cardTitle": card.title,
+                        "messageCount": chatViewModel.messages.count
+                    ],
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A",
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+                if let logData = try? JSONSerialization.data(withJSONObject: logEntry3),
+                   let logStr = String(data: logData, encoding: .utf8) {
+                    try? (logStr + "\n").appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                }
+                // #endregion
             } else if let response = response, !response.isEmpty {
                 // Just text response, no card
                 await MainActor.run {
                     chatViewModel.injectMessage(role: "assistant", text: response)
                 }
                 print("💬 Agent response injected into chat")
+                
+                // #region agent log
+                let logEntry4: [String: Any] = [
+                    "location": "AppShellView.swift:151",
+                    "message": "AppShellView INJECTED text-only message",
+                    "data": [
+                        "messageCount": chatViewModel.messages.count
+                    ],
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A",
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+                if let logData = try? JSONSerialization.data(withJSONObject: logEntry4),
+                   let logStr = String(data: logData, encoding: .utf8) {
+                    try? (logStr + "\n").appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                }
+                // #endregion
             }
             
             // Mark that app has launched (only after first successful event)

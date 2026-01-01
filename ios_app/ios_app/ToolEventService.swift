@@ -97,11 +97,11 @@ class ToolEventService {
                 }
             }
             
-            // If agent responded with text, insert into chat (if chatViewModel available)
-            if let text = agentResponse, !text.isEmpty, let chatVM = chatViewModel {
-                chatVM.injectMessage(role: "assistant", text: text, card: card)
-                print("💬 Agent response injected into chat: \(text.prefix(50))...")
-            }
+            // DO NOT auto-inject here - let the caller decide when/how to inject
+            // This prevents double-injection when caller also injects
+            
+            print("✅ Tool event sent successfully (status: \(status))")
+            return (agentResponse, card)
             
             print("✅ Tool event sent successfully (status: \(status))")
             return (agentResponse, card)

@@ -82,11 +82,37 @@ struct ChatView: View {
                         showOnboarding = false
                         // Send flow_completed event
                         Task {
+                            // #region agent log
+                            let logEntry: [String: Any] = [
+                                "location": "ChatView.swift:82",
+                                "message": "Onboarding onComplete - sending flow_completed",
+                                "data": [
+                                    "messageCount": chatViewModel.messages.count,
+                                    "timestamp": Date().timeIntervalSince1970
+                                ],
+                                "sessionId": "debug-session",
+                                "runId": "run2",
+                                "hypothesisId": "E",
+                                "timestamp": Date().timeIntervalSince1970
+                            ]
+                            if let logData = try? JSONSerialization.data(withJSONObject: logEntry),
+                               let logStr = String(data: logData, encoding: .utf8) {
+                                try? (logStr + "\n").appendLineToFile(filePath: "/Users/sly/dev/shift/.cursor/debug.log")
+                            }
+                            // #endregion
+                            
                             let toolEventService = makeToolEventService()
-                            _ = try? await toolEventService?.sendToolEvent(
+                            if let (response, card) = try? await toolEventService?.sendToolEvent(
                                 type: "flow_completed",
                                 context: "User completed getting_started onboarding"
-                            )
+                            ) {
+                                // Only inject if there's actually a response
+                                if let text = response, !text.isEmpty {
+                                    await MainActor.run {
+                                        chatViewModel.injectMessage(role: "assistant", text: text, card: card)
+                                    }
+                                }
+                            }
                         }
                     },
                     interactionService: makeInteractionService(),
@@ -185,11 +211,18 @@ struct ChatView: View {
             if let prompt = card.action.prompt {
                 Task {
                     let toolEventService = makeToolEventService()
-                    _ = try? await toolEventService?.sendToolEvent(
+                    if let (response, card) = try? await toolEventService?.sendToolEvent(
                         type: "card_tapped",
                         suggestedAction: prompt,
                         context: "User tapped agent card with prompt"
-                    )
+                    ) {
+                        // Inject response if present
+                        if let text = response, !text.isEmpty {
+                            await MainActor.run {
+                                chatViewModel.injectMessage(role: "assistant", text: text, card: card)
+                            }
+                        }
+                    }
                 }
             }
             
